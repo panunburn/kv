@@ -1,23 +1,28 @@
 package protocol;
 
+/**
+ * 
+ * This class represents the PRINT request.
+ *
+ */
 public class PrintRequest extends Request
 {
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
     public PrintRequest()
-	{
-    	super();
-	}
+    {
+        super();
+    }
 
-	@Override
-	public <T, E extends Throwable> T accept(RequestVisitor<T, E> v) throws E
-	{
-		return v.visit(this);
-	}
+    @Override
+    public <T, E extends Throwable> T accept(RequestVisitor<T, E> v) throws E
+    {
+        return v.visit(this);
+    }
 
-	@Override
-	public String toString()
-	{
-		return "PRINT";
-	}
+    @Override
+    public String toString()
+    {
+        return "PRINT";
+    }
 }

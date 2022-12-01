@@ -2,7 +2,7 @@ package protocol;
 
 /**
  * 
- * This class represents the GET requests with format "GET \<key\>".
+ * This class represents the GET request with format "GET \<key\>".
  *
  */
 public class GetRequest extends Request
@@ -10,15 +10,16 @@ public class GetRequest extends Request
     private static final long serialVersionUID = 1L;
 
     public String key;
-    
+
     /**
      * Create a DeleteRequest with a key.
+     * 
      * @param key the key
      * @throws InvalidRequestException if the input key is not valid.
      */
     public GetRequest(String key) throws InvalidRequestException
     {
-    	if (isValid(key))
+        if (isValid(key))
         {
             throw new InvalidRequestException("Request key shouldn't be null or empty.");
         }
@@ -27,9 +28,10 @@ public class GetRequest extends Request
             this.key = key;
         }
     }
-    
+
     /**
      * Apply a RequestVisitor.
+     * 
      * @param <T> the return type
      * @param <E> the exception type
      * @return an object with type T.

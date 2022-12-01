@@ -15,5 +15,5 @@ public interface RequestVisitor<T, E extends Throwable>
 
     public T visit(PutRequest putRequest) throws E;
 
-	public T visit(PrintRequest printRequest) throws E;
+    public T visit(PrintRequest printRequest) throws E;
 }

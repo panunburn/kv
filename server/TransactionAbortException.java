@@ -12,10 +12,10 @@ import java.rmi.RemoteException;
 public class TransactionAbortException extends RemoteException
 {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	/**
-	 * Construct a TransactionAbortException.
-	 */
-	public TransactionAbortException() {}
+    /**
+     * Construct a TransactionAbortException.
+     */
+    public TransactionAbortException() {}
 }

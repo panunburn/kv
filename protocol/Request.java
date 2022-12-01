@@ -10,9 +10,10 @@ import java.io.Serializable;
 public abstract class Request implements Serializable
 {
     private static final long serialVersionUID = 1L;
-    
+
     /**
      * Return true if a key or value is valid.
+     * 
      * @param kv a key or value
      * @return true if kv is not null or empty.
      */
@@ -20,16 +21,17 @@ public abstract class Request implements Serializable
     {
         return kv == null || kv.isEmpty();
     }
-    
+
     /**
      * Create a request.
      */
     protected Request() {}
-    
+
     /**
      * Apply a request visitor.
+     * 
      * @param <T> the return type of the Request visitor
-     * @param v a request visitor
+     * @param v   a request visitor
      * @return an object with type T.
      */
     public abstract <T, E extends Throwable> T accept(RequestVisitor<T, E> v) throws E;
