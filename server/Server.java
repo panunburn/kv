@@ -163,13 +163,13 @@ interface ParticipantListener
 	
 	public void onAbort(Request request);
 	
-	public void onShutdown(ParticipantService service);	
+	public void onShutdown(ReplicaService service);	
 }
 
 /**
  * The participant/replicated service. 
  */
-class Participant implements ParticipantService
+class Participant implements ReplicaService
 {
 	private ServerState state;
 	private ReadSet readset;
@@ -241,14 +241,14 @@ class Coordinator implements CoordinatorService
 {
 	private KVStore store;
 	private ReadSet readset;
-	private HashMap<EndPoint, ParticipantService> mapper;
+	private HashMap<EndPoint, ReplicaService> mapper;
 	
 	public Coordinator(KVStore store,
 					   ReadSet readset)
 	{
 		this.store = store;
 		this.readset = readset;
-		this.mapper = new HashMap<EndPoint, ParticipantService>();
+		this.mapper = new HashMap<EndPoint, ReplicaService>();
 	}
 	
 	/**
@@ -256,7 +256,7 @@ class Coordinator implements CoordinatorService
 	 */
 	private void waitForServices()
 	{
-		while (!mapper.values().stream().allMatch((ParticipantService r) -> 
+		while (!mapper.values().stream().allMatch((ReplicaService r) -> 
 												  {
 													 return r != null;
 												  }))
@@ -274,10 +274,10 @@ class Coordinator implements CoordinatorService
 	}
 	
 	/**
-	 * Remove unresponsive servers from future operations as if they have disconnected.
+	 * Exclude unresponsive servers from future operations as if they have been disconnected.
 	 * @param unresponsive a list of unresponsive servers
 	 */
-	private void remove(ArrayList<EndPoint> unresponsive)
+	private void exclude(ArrayList<EndPoint> unresponsive)
 	{
 		while (unresponsive.size() != 0)
 		{
@@ -290,7 +290,7 @@ class Coordinator implements CoordinatorService
 			ArrayList<EndPoint> newUnresponsive = new ArrayList<EndPoint>();
 			for (EndPoint u : unresponsive)
 			{
-				mapper.forEach((EndPoint p, ParticipantService r) -> 
+				mapper.forEach((EndPoint p, ReplicaService r) -> 
 							   {
 								   try
 								   {
@@ -334,9 +334,9 @@ class Coordinator implements CoordinatorService
 	 * Notify other blocked operations.
 	 */
 	@Override
-	public synchronized void register(EndPoint replica, ParticipantService service) throws RemoteException
+	public synchronized void register(EndPoint replica, ReplicaService service) throws RemoteException
 	{
-		ParticipantService partial = mapper.put(replica, service);
+		ReplicaService partial = mapper.put(replica, service);
 		if (partial != null)
 		{
 			Logger.warning("Replicated server " + replica + " has already been fully initialized.");
@@ -346,7 +346,7 @@ class Coordinator implements CoordinatorService
 		waitForServices();
 		
 		ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-		mapper.forEach((EndPoint p, ParticipantService r) -> 
+		mapper.forEach((EndPoint p, ReplicaService r) -> 
 					   {
 						   if (!p.equals(replica))
 						   {
@@ -362,7 +362,7 @@ class Coordinator implements CoordinatorService
 							   }
 						   }
 					   });		
-		remove(unresponsive);
+		exclude(unresponsive);
 		
 		Logger.log(replica + " has registered itself.");
 	}
@@ -375,7 +375,7 @@ class Coordinator implements CoordinatorService
 		mapper.remove(replica);
 	
 		ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-		mapper.forEach((EndPoint p, ParticipantService r) -> 
+		mapper.forEach((EndPoint p, ReplicaService r) -> 
 					   {
 						   try
 						   {
@@ -388,7 +388,7 @@ class Coordinator implements CoordinatorService
 							   unresponsive.add(p);
 						   }
 					   });
-		remove(unresponsive);
+		exclude(unresponsive);
 		
 		Logger.log(replica + " has been disconnected.");
 	}
@@ -398,7 +398,7 @@ class Coordinator implements CoordinatorService
 	{		
 		waitForServices();
 		
-		mapper.forEach((EndPoint p, ParticipantService r) -> 
+		mapper.forEach((EndPoint p, ReplicaService r) -> 
 					   {
 						   try
 						   {
@@ -433,7 +433,7 @@ class Coordinator implements CoordinatorService
 
 		HashMap<EndPoint, Boolean> responded = new HashMap<EndPoint, Boolean>();
 		ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-		for (Map.Entry<EndPoint, ParticipantService> i : mapper.entrySet())
+		for (Map.Entry<EndPoint, ReplicaService> i : mapper.entrySet())
 		{
 			 try
 			 {
@@ -447,14 +447,14 @@ class Coordinator implements CoordinatorService
 				 unresponsive.add(i.getKey());
 			 }
 		}
-		remove(unresponsive);
+		exclude(unresponsive);
 		
 		// 2. completion phase
 		unresponsive.clear();
 		if (coordVote && responded.values().stream().allMatch((Boolean b) -> { return b; }))
 		{
 			Logger.log("Committing request " + request);
-			mapper.forEach((EndPoint p, ParticipantService r) -> 
+			mapper.forEach((EndPoint p, ReplicaService r) -> 
 						   {
 							   try
 							   {
@@ -467,7 +467,7 @@ class Coordinator implements CoordinatorService
 								   unresponsive.add(p);
 							   }
 						   });
-			remove(unresponsive);
+			exclude(unresponsive);
 
 			String val = request.accept(new ProcessRequest(new ServerState(store, mapper.keySet())));
 			Logger.log("Request " + request + " has been committed.");
@@ -491,9 +491,9 @@ class Coordinator implements CoordinatorService
 									}
 								}
 							  });
-			remove(unresponsive);
+			exclude(unresponsive);
 			Logger.log("Request " + request + " has been aborted.");
-			throw new RemoteException("Request aborted.");
+			throw new TransactionAbortException();
 		}
 	}
 }
@@ -612,7 +612,7 @@ class Server
 			Logger.log("Connected coordinator service and initialized replicated server state.");
 			Logger.log(state.toString());
 
-			ParticipantService replica = new Participant(state, 
+			ReplicaService replica = new Participant(state, 
 														 readset,
 													     new ParticipantListener() 
 													     {
@@ -629,7 +629,7 @@ class Server
 															}
 		
 															@Override
-															public void onShutdown(ParticipantService replica)
+															public void onShutdown(ReplicaService replica)
 															{
 																Logger.log("Recevied shutdown event from the coordinator.");
 		
@@ -738,7 +738,7 @@ class Server
         				}
         				else
         				{
-            				// TODO find a new coordinator
+            				// TODO elect a new coordinator
         				}
         			}
         			else

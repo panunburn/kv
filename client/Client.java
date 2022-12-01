@@ -7,7 +7,7 @@ import java.io.*;
 import java.rmi.*;
 import java.rmi.registry.LocateRegistry;
 
-import server.StoreService;
+import server.*;
 import common.*;
 import protocol.*;
 
@@ -120,15 +120,20 @@ class Client
 						            		{
 						            			return null;
 						            		}
-		            				   });
+		            				   });		            	
 	            	}
     			}
 				catch (InvalidRequestException e)
 				{
 					Logger.warning(e);
 				}
+				catch (TransactionAbortException e)
+            	{
+            		Logger.warning("Request aborted.", e);
+            	}
 				catch (RemoteException e)
 				{					
+					// TODO Automatically retry other available severs.
 					Logger.warning("Service exception.", e);
 				}
 	            catch (IOException e)

@@ -23,7 +23,7 @@ public interface CoordinatorService extends Remote
 	 * @param service the replica service 
 	 * @throws RemoteException
 	 */
-	void register(EndPoint replica, ParticipantService service) throws RemoteException;
+	void register(EndPoint replica, ReplicaService service) throws RemoteException;
 	
 	/**
 	 * Disconnect a replicated server.
