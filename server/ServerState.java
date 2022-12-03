@@ -14,9 +14,9 @@ public class ServerState implements Serializable
     private static final long serialVersionUID = 1L;
 
     KVStore store;
-    Set<EndPoint> replicas;
+    HashMap<EndPoint, ReplicaService> replicas;
 
-    public ServerState(KVStore store, Set<EndPoint> replicas)
+    public ServerState(KVStore store, HashMap<EndPoint, ReplicaService> replicas)
     {
         this.store = store;
         this.replicas = replicas;
@@ -26,6 +26,6 @@ public class ServerState implements Serializable
     public String toString()
     {
         return "Current server state:\n" + "Store contains: " + store + "\n" 
-             + "Available replicated servers: " + replicas;
+             + "Available replicated servers: " + replicas.keySet();
     }
 }

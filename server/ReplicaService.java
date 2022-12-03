@@ -14,9 +14,10 @@ public interface ReplicaService extends Remote
      * Capture the event whenever a new replicated server has been added.
      * 
      * @param addr the endpoint location for the added server
+     * @param service the replica service
      * @throws RemoteException
      */
-    void add(EndPoint addr) throws RemoteException;
+    void add(EndPoint addr, ReplicaService service) throws RemoteException;
 
     /**
      * Capture the event whenever a new replicated server has been removed.

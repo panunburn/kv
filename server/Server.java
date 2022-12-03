@@ -202,10 +202,10 @@ class Participant implements ReplicaService
     }
 
     @Override
-    public synchronized void add(EndPoint addr) throws RemoteException
+    public synchronized void add(EndPoint addr, ReplicaService service) throws RemoteException
     {
         listener.onAdd(addr);
-        state.replicas.add(addr);
+        state.replicas.put(addr, service);
     }
 
     @Override
@@ -329,10 +329,10 @@ class Coordinator implements CoordinatorService
     @Override
     public synchronized ServerState connect(EndPoint replica) throws RemoteException
     {
-        // make a copy of the old keys
-        HashSet<EndPoint> keys = new HashSet<EndPoint>(mapper.keySet());
+        // make a copy of the old state
+        HashMap<EndPoint, ReplicaService> keys = new HashMap<EndPoint, ReplicaService>(mapper);
 
-        // partially initialized the replicated server
+        // partially initialize the replicated server
         mapper.put(replica, null);
 
         Logger.log(replica + " has connected.");
@@ -364,7 +364,7 @@ class Coordinator implements CoordinatorService
                                 try
                                 {
                                     Logger.log("Adding replicated server " + replica + " in " + p + ".");
-                                    r.add(replica);
+                                    r.add(replica, service);
                                 }
                                 catch (RemoteException e)
                                 {
@@ -482,7 +482,7 @@ class Coordinator implements CoordinatorService
             });
             exclude(unresponsive);
 
-            String val = request.accept(new ProcessRequest(new ServerState(store, mapper.keySet())));
+            String val = request.accept(new ProcessRequest(new ServerState(store, mapper)));
             Logger.log("Request " + request + " has been committed.");
             return val;
         }
@@ -602,7 +602,7 @@ class Server
         {
             // run as coordinator
             KVStore kv = new KVStore(Config.defaultStorePath());
-            HashSet<EndPoint> replicas = new HashSet<EndPoint>();
+            HashMap<EndPoint, ReplicaService> replicas = new HashMap<EndPoint, ReplicaService>();
             state = new ServerState(kv, replicas);
             Logger.log("Initialized coordinator server state.\n" + state.toString());
 
