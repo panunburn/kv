@@ -5,7 +5,6 @@ package client;
 
 import java.io.*;
 import java.rmi.*;
-import java.rmi.registry.LocateRegistry;
 
 import server.*;
 import common.*;
@@ -39,7 +38,7 @@ class Client
                 throw new CmdLineParserException("Invalid client inputs. Usage: java client.Client <ip address | host name>? <port number>?.");
             }
 
-            StoreService store = (StoreService) LocateRegistry.getRegistry(server.getHost().getHostAddress(), server.getPort()).lookup(Config.defaultStoreServiceName());
+            StoreService store = ServiceRegistry.connect(server, StoreService.class);
             Logger.log("Connected to the server.");
 
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));

@@ -12,13 +12,22 @@ public class Config
 {
     /**
      * 
-     * @return predefined key value store path.
+     * @return path to the previously saved key value store.
      */
-    public static String defaultStorePath()
+    public static String defaultKVStorePath()
     {
-        return "./store";
+        return "./kv.store";
     }
 
+    /**
+     * 
+     * @return path to the previously saved id store.
+     */
+    public static String defaultIdStorePath()
+    {
+        return "./id.store";
+    }
+    
     /**
      * @return the default port for the server RMI registry.
      */
@@ -39,22 +48,7 @@ public class Config
     {
         return ":";
     }
-
-    public static String defaultStoreServiceName()
-    {
-        return "StoreService";
-    }
-
-    public static String defaultReplicaServiceName()
-    {
-        return "ReplicaService";
-    }
-
-    public static String defaultCoordinatorServiceName()
-    {
-        return "CoordinatorService";
-    }
-
+    
     public static boolean debugMode()
     {
         return true;

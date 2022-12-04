@@ -6,13 +6,11 @@ package server;
 import java.net.*;
 import java.net.UnknownHostException;
 import java.rmi.*;
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
 import java.rmi.server.RemoteServer;
-import java.rmi.server.UnicastRemoteObject;
 import java.util.*;
 
 import common.*;
+import id.UniqueIdService;
 import protocol.*;
 
 /**
@@ -249,12 +247,14 @@ class Participant implements ReplicaService
  */
 class Coordinator implements CoordinatorService
 {
+    private UniqueIdService id;
     private KVStore store;
     private ReadSet readset;
     private HashMap<EndPoint, ReplicaService> mapper;
 
-    public Coordinator(KVStore store, ReadSet readset)
+    public Coordinator(UniqueIdService id, KVStore store, ReadSet readset)
     {
+        this.id = id;
         this.store = store;
         this.readset = readset;
         this.mapper = new HashMap<EndPoint, ReplicaService>();
@@ -575,12 +575,40 @@ class Store implements StoreService
     }
 }
 
+enum ServerType 
+{
+    Coordinator("coordinator"),
+    Replica("replica");
+    
+    private String text;
+    
+    ServerType(String text)
+    {
+        this.text = text;
+    }
+    
+    public String getText() { return this.text; }
+    
+    public static ServerType parse(String s)
+    {
+        for (ServerType t : ServerType.values())
+        {
+            if (t.text.equals(s))
+            {
+                return t;
+            }
+        }
+        return null;
+    }
+}
+
 /**
  * The Server.
  */
 class Server
 {
-    private static Registry registry;
+    private static ServiceRegistry registry;
+    
     private static EndPoint local;
     private static ReadSet readset;
 
@@ -590,37 +618,37 @@ class Server
 
     private static boolean shutdownByCoordinator = false;
 
-    public static void initialize(EndPoint coordAddr, int port) throws RemoteException, NotBoundException, UnknownHostException
+    public static void initialize(ServerType type, EndPoint addr, int port) throws RemoteException, NotBoundException, UnknownHostException, ServiceRegistryException
     {
-        registry = LocateRegistry.createRegistry(port);
+        registry = new ServiceRegistry(port);
         System.setProperty("sun.rmi.transport.tcp.responseTimeout", String.valueOf(Config.defaultResponseTimeout()));
 
         local = new EndPoint(InetAddress.getLocalHost(), port);
         readset = new ReadSet();
 
-        if (coordAddr == null)
+        if (type.equals(ServerType.Coordinator))
         {
-            // run as coordinator
-            KVStore kv = new KVStore(Config.defaultStorePath());
+            UniqueIdService id = ServiceRegistry.connect(addr, UniqueIdService.class);
+            
+            KVStore kv = new KVStore(Config.defaultKVStorePath());
             HashMap<EndPoint, ReplicaService> replicas = new HashMap<EndPoint, ReplicaService>();
             state = new ServerState(kv, replicas);
             Logger.log("Initialized coordinator server state.\n" + state.toString());
 
-            coordinator = new Coordinator(kv, readset);
-            registry.rebind(Config.defaultCoordinatorServiceName(), UnicastRemoteObject.exportObject(coordinator, 0));
+            coordinator = new Coordinator(id, kv, readset);
+            registry.start(coordinator);
             Logger.log("Initialized coordinator service.");
         }
         else
         {
-            // run as replica
             try
             {
-                coordinator = (CoordinatorService) LocateRegistry.getRegistry(coordAddr.getHost().getHostAddress(), coordAddr.getPort()).lookup(Config.defaultCoordinatorServiceName());
-                Logger.log("Found coordinator service on " + coordAddr + ".");
+                coordinator = ServiceRegistry.connect(addr, CoordinatorService.class);
+                Logger.log("Found coordinator service on " + addr + ".");
             }
             catch (RemoteException | NotBoundException e)
             {
-                Logger.error("Failed to find the coordinator service on " + coordAddr + ".");
+                Logger.error("Failed to find the coordinator service on " + addr + ".");
                 throw e;
             }
 
@@ -649,15 +677,11 @@ class Server
                             
                                                 try
                                                 {
-                                                    registry.unbind(Config.defaultStoreServiceName());
-                                                    UnicastRemoteObject.unexportObject(store, true);
-                            
-                                                    registry.unbind(Config.defaultReplicaServiceName());
-                                                    UnicastRemoteObject.unexportObject(replica, true);
-                            
+                                                    registry.shutdown(store);
+                                                    registry.shutdown(replica);
                                                     shutdownByCoordinator = true;
                                                 }
-                                                catch (RemoteException | NotBoundException e)
+                                                catch (ServiceRegistryException | RemoteException | NotBoundException e)
                                                 {
                                                     Logger.warning("Failed to shutdown replicated server.", e);
                                                 }
@@ -681,13 +705,14 @@ class Server
                                                 Logger.log("Abort request " + request);
                                             }
                                      });
-            registry.rebind(Config.defaultReplicaServiceName(), UnicastRemoteObject.exportObject(replica, 0));
+            
+            registry.start(replica);
             coordinator.register(local, replica);
             Logger.log("Initialized replica service.");
         }
 
         store = new Store(coordinator, readset, state.store);
-        registry.rebind(Config.defaultStoreServiceName(), UnicastRemoteObject.exportObject(store, 0));
+        registry.start(store);
         Logger.log("Initialized store service.");
     }
 
@@ -701,44 +726,36 @@ class Server
                 RemoteServer.setLog(Logger.getLogStream());
             }
 
-            final EndPoint coordAddr;
+            final ServerType type;
+            final EndPoint addr;
             final int port;
 
-            if (args.length == 0)
+            if (args.length == 3)
             {
-                coordAddr = null;
-                port = Config.defaultServerPortNumber();
-            }
-            else if (args.length == 1)
-            {
-                coordAddr = null;
-                port = CmdLineParser.parsePort(args[0], Config.defaultServerPortNumber());
-            }
-            else if (args.length == 2)
-            {
-                coordAddr = CmdLineParser.parseEndPoint(args[0], Config.defaultServerPortNumber());
-                port = CmdLineParser.parsePort(args[1], Config.defaultServerPortNumber());
+                type = ServerType.parse(args[0]);
+                addr = CmdLineParser.parseEndPoint(args[1], Config.defaultServerPortNumber());
+                port = CmdLineParser.parsePort(args[2], Config.defaultServerPortNumber());
             }
             else
             {
-                throw new CmdLineParserException("Invalid server input. Usage: java server.Server <port>? | <address> <port>.");
+                throw new CmdLineParserException("Invalid server input. Usage: java server.Server coordinator <endpoint> <port>.");
             }
-
+            
             try
             {
-                initialize(coordAddr, port);
+                initialize(type, addr, port);
 
-                Logger.log("Server is up at host " + local.getHost().getHostName() + " with address " + local.getHost().getHostAddress() + " and port " + local.getPort() + ".");
+                Logger.log(type + " is up at host " + local.getHost().getHostName() + " with address " + local.getHost().getHostAddress() + " and port " + local.getPort() + ".");
 
-                // setup exit handler to save the store or disconnect the service when server
-                // exits
+                // setup exit handler to save the store or disconnect the service when server exits
                 Runtime.getRuntime().addShutdownHook(new Thread(() ->
                                                     {
-                                                        if (coordAddr == null)
+                                                        Logger.log("Shutting down " + type + " ...");
+                                                        
+                                                        if (type.equals(ServerType.Coordinator))
                                                         {
-                                                            Logger.log("Shutting down coordinator  ...");
                                                             Logger.log("Saving the store ...");
-                                                            state.store.save(Config.defaultStorePath());
+                                                            state.store.save(Config.defaultKVStorePath());
                                     
                                                             if (Config.exitWhenCoordinatorFails())
                                                             {
@@ -758,7 +775,6 @@ class Server
                                                         }
                                                         else
                                                         {
-                                                            Logger.log("Shutting down replicated server ...");
                                                             if (!shutdownByCoordinator)
                                                             {
                                                                 try
