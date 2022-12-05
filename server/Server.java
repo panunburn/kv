@@ -250,12 +250,14 @@ class Coordinator implements CoordinatorService
     private UniqueIdService id;
     private ServerState state;
     private ReadSet readset;
+    private HashSet<EndPoint> partial;
 
     public Coordinator(UniqueIdService id, ServerState state, ReadSet readset)
     {
         this.id = id;
         this.state = state;
         this.readset = readset;
+        this.partial = new HashSet<>();
     }
     
     /**
@@ -263,7 +265,7 @@ class Coordinator implements CoordinatorService
      */
     private void waitForServices()
     {
-        while (!state.replicas.values().stream().allMatch((ReplicaService r) -> { return r != null; }))
+        while (!partial.isEmpty())
         {
             try
             {
@@ -327,15 +329,9 @@ class Coordinator implements CoordinatorService
     @Override
     public synchronized ServerState connect(EndPoint replica) throws RemoteException
     {
-        // make a copy of the old state
-        HashMap<EndPoint, ReplicaService> keys = new HashMap<EndPoint, ReplicaService>(state.replicas);
-
-        // partially initialize the replicated server
-        state.replicas.put(replica, null);
-
+        partial.add(replica);
         Logger.log(replica + " has connected.");
-
-        return new ServerState(state.store, keys);
+        return state;
     }
 
     /**
@@ -345,11 +341,8 @@ class Coordinator implements CoordinatorService
     @Override
     public synchronized void register(EndPoint replica, ReplicaService service) throws RemoteException
     {
-        ReplicaService partial = state.replicas.put(replica, service);
-        if (partial != null)
-        {
-            Logger.warning("Replicated server " + replica + " has already been fully initialized.");
-        }
+        partial.remove(replica);
+        state.replicas.put(replica, service);
         notifyAll();
 
         waitForServices();

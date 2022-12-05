@@ -19,11 +19,11 @@ class Server implements UniqueIdService
         id = (Long) Utils.restore(f);
         if (id != null)
         {
-            Logger.log("Previous id restored:\n" + id);
+            Logger.log("Previous id " + id + " restored from " + f.getAbsolutePath() + ".");
         }
         else
         {
-            Logger.warning("Failed to restore the previous id from " + path + ".");
+            Logger.warning("Failed to restore the previous id from " + f.getAbsolutePath() + ".");
             id = new Long(1);
         }
     }
