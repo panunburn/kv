@@ -147,7 +147,7 @@ class ProcessRequest implements RequestVisitor<String, NoThrow>
     @Override
     public String visit(GetRequest r) throws NoThrow
     {
-        return null;
+        return state.store.get(r.key);
     }
 
     @Override
@@ -248,24 +248,22 @@ class Participant implements ReplicaService
 class Coordinator implements CoordinatorService
 {
     private UniqueIdService id;
-    private KVStore store;
+    private ServerState state;
     private ReadSet readset;
-    private HashMap<EndPoint, ReplicaService> mapper;
 
-    public Coordinator(UniqueIdService id, KVStore store, ReadSet readset)
+    public Coordinator(UniqueIdService id, ServerState state, ReadSet readset)
     {
         this.id = id;
-        this.store = store;
+        this.state = state;
         this.readset = readset;
-        this.mapper = new HashMap<EndPoint, ReplicaService>();
     }
-
+    
     /**
      * Wait until all replicated servers have been fully initialized.
      */
     private void waitForServices()
     {
-        while (!mapper.values().stream().allMatch((ReplicaService r) -> { return r != null; }))
+        while (!state.replicas.values().stream().allMatch((ReplicaService r) -> { return r != null; }))
         {
             try
             {
@@ -292,13 +290,13 @@ class Coordinator implements CoordinatorService
             for (EndPoint u : unresponsive)
             {
                 Logger.log("Removing unresponsive server " + u + " in coordinator.");
-                mapper.remove(u);
+                state.replicas.remove(u);
             }
 
             ArrayList<EndPoint> newUnresponsive = new ArrayList<EndPoint>();
             for (EndPoint u : unresponsive)
             {
-                mapper.forEach((EndPoint p, ReplicaService r) ->
+                state.replicas.forEach((EndPoint p, ReplicaService r) ->
                                 {
                                     try
                                     {
@@ -330,14 +328,14 @@ class Coordinator implements CoordinatorService
     public synchronized ServerState connect(EndPoint replica) throws RemoteException
     {
         // make a copy of the old state
-        HashMap<EndPoint, ReplicaService> keys = new HashMap<EndPoint, ReplicaService>(mapper);
+        HashMap<EndPoint, ReplicaService> keys = new HashMap<EndPoint, ReplicaService>(state.replicas);
 
         // partially initialize the replicated server
-        mapper.put(replica, null);
+        state.replicas.put(replica, null);
 
         Logger.log(replica + " has connected.");
 
-        return new ServerState(store, keys);
+        return new ServerState(state.store, keys);
     }
 
     /**
@@ -347,7 +345,7 @@ class Coordinator implements CoordinatorService
     @Override
     public synchronized void register(EndPoint replica, ReplicaService service) throws RemoteException
     {
-        ReplicaService partial = mapper.put(replica, service);
+        ReplicaService partial = state.replicas.put(replica, service);
         if (partial != null)
         {
             Logger.warning("Replicated server " + replica + " has already been fully initialized.");
@@ -357,7 +355,7 @@ class Coordinator implements CoordinatorService
         waitForServices();
 
         ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-        mapper.forEach((EndPoint p, ReplicaService r) ->
+        state.replicas.forEach((EndPoint p, ReplicaService r) ->
                         {
                             if (!p.equals(replica))
                             {
@@ -383,10 +381,10 @@ class Coordinator implements CoordinatorService
     {
         waitForServices();
 
-        mapper.remove(replica);
+        state.replicas.remove(replica);
 
         ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-        mapper.forEach((EndPoint p, ReplicaService r) ->
+        state.replicas.forEach((EndPoint p, ReplicaService r) ->
                         {
                             try
                             {
@@ -409,7 +407,7 @@ class Coordinator implements CoordinatorService
     {
         waitForServices();
 
-        mapper.forEach((EndPoint p, ReplicaService r) ->
+        state.replicas.forEach((EndPoint p, ReplicaService r) ->
                         {
                             try
                             {
@@ -446,7 +444,7 @@ class Coordinator implements CoordinatorService
 
         HashMap<EndPoint, Boolean> responded = new HashMap<EndPoint, Boolean>();
         ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-        for (Map.Entry<EndPoint, ReplicaService> i : mapper.entrySet())
+        for (Map.Entry<EndPoint, ReplicaService> i : state.replicas.entrySet())
         {
             try
             {
@@ -467,7 +465,7 @@ class Coordinator implements CoordinatorService
         if (coordVote && responded.values().stream().allMatch((Boolean b) -> { return b; }))
         {
             Logger.log("Committing request " + request);
-            mapper.forEach((EndPoint p, ReplicaService r) ->
+            state.replicas.forEach((EndPoint p, ReplicaService r) ->
             {
                 try
                 {
@@ -482,7 +480,7 @@ class Coordinator implements CoordinatorService
             });
             exclude(unresponsive);
 
-            String val = request.accept(new ProcessRequest(new ServerState(store, mapper)));
+            final String val = request.accept(new ProcessRequest(state));
             Logger.log("Request " + request + " has been committed.");
             return val;
         }
@@ -495,7 +493,7 @@ class Coordinator implements CoordinatorService
                                   {
                                       try
                                       {
-                                          mapper.get(p).abort(request);
+                                          state.replicas.get(p).abort(request);
                                       }
                                       catch (RemoteException e)
                                       {
@@ -516,15 +514,15 @@ class Coordinator implements CoordinatorService
  */
 class Store implements StoreService
 {
-    CoordinatorService coordinator;
-    ReadSet readset;
-    KVStore store;
+    private CoordinatorService coordinator;
+    private ServerState state;
+    private ReadSet readset;
 
-    public Store(CoordinatorService coordinator, ReadSet readset, KVStore store)
+    public Store(CoordinatorService coordinator, ServerState state, ReadSet readset)
     {
         this.coordinator = coordinator;
+        this.state = state;
         this.readset = readset;
-        this.store = store;
     }
 
     /**
@@ -549,7 +547,7 @@ class Store implements StoreService
                                     public String visit(GetRequest r)
                                     {
                                         readset.mark(r.key);
-                                        final String val = store.get(r.key);
+                                        final String val = r.accept(new ProcessRequest(state));
                                         readset.unmark(r.key);
                                         return val;
                                     }
@@ -628,16 +626,14 @@ class Server
 
         if (type.equals(ServerType.Coordinator))
         {
-            UniqueIdService id = ServiceRegistry.connect(addr, UniqueIdService.class);
-            
-            KVStore kv = new KVStore(Config.defaultKVStorePath());
-            HashMap<EndPoint, ReplicaService> replicas = new HashMap<EndPoint, ReplicaService>();
-            state = new ServerState(kv, replicas);
-            Logger.log("Initialized coordinator server state.\n" + state.toString());
+            UniqueIdService id = ServiceRegistry.connect(addr, UniqueIdService.class);            
+            state = new ServerState();
+            Logger.log("Initialized coordinator server state.\n" + state);
 
-            coordinator = new Coordinator(id, kv, readset);
-            registry.start(coordinator);
+            coordinator = new Coordinator(id, state, readset);
             Logger.log("Initialized coordinator service.");
+
+            registry.start(coordinator);
         }
         else
         {
@@ -653,65 +649,65 @@ class Server
             }
 
             state = coordinator.connect(local);
-            Logger.log("Connected coordinator service and initialized replicated server state.");
-            Logger.log(state.toString());
+            Logger.log("Connected coordinator service and initialized replicated server state.\n" + state);
 
-            ReplicaService replica = new Participant(state, readset, new ParticipantListener()
-                                     {
-                                            @Override
-                                            public void onRemove(EndPoint addr)
-                                            {
-                                                Logger.log("Removing replicated server " + addr + ".");
-                                            }
-                            
-                                            @Override
-                                            public void onAdd(EndPoint addr)
-                                            {
-                                                Logger.log("Adding replicated server " + addr + ".");
-                                            }
-                            
-                                            @Override
-                                            public void onShutdown(ReplicaService replica)
-                                            {
-                                                Logger.log("Recevied shutdown event from the coordinator.");
-                            
-                                                try
-                                                {
-                                                    registry.shutdown(store);
-                                                    registry.shutdown(replica);
-                                                    shutdownByCoordinator = true;
-                                                }
-                                                catch (ServiceRegistryException | RemoteException | NotBoundException e)
-                                                {
-                                                    Logger.warning("Failed to shutdown replicated server.", e);
-                                                }
-                                            }
-                            
-                                            @Override
-                                            public void onValidate(Request request)
-                                            {
-                                                Logger.log("Validating request " + request);
-                                            }
-                            
-                                            @Override
-                                            public void onCommit(Request request)
-                                            {
-                                                Logger.log("Commit request " + request);
-                                            }
-                            
-                                            @Override
-                                            public void onAbort(Request request)
-                                            {
-                                                Logger.log("Abort request " + request);
-                                            }
-                                     });
+            ReplicaService replica = new Participant(state, readset, 
+                                                     new ParticipantListener()
+                                                     {
+                                                            @Override
+                                                            public void onRemove(EndPoint addr)
+                                                            {
+                                                                Logger.log("Removing replicated server " + addr + ".");
+                                                            }
+                                            
+                                                            @Override
+                                                            public void onAdd(EndPoint addr)
+                                                            {
+                                                                Logger.log("Adding replicated server " + addr + ".");
+                                                            }
+                                            
+                                                            @Override
+                                                            public void onShutdown(ReplicaService replica)
+                                                            {
+                                                                Logger.log("Recevied shutdown event from the coordinator.");
+                                            
+                                                                try
+                                                                {
+                                                                    registry.shutdown(store);
+                                                                    registry.shutdown(replica);
+                                                                    shutdownByCoordinator = true;
+                                                                }
+                                                                catch (ServiceRegistryException | RemoteException | NotBoundException e)
+                                                                {
+                                                                    Logger.warning("Failed to shutdown replicated server.", e);
+                                                                }
+                                                            }
+                                            
+                                                            @Override
+                                                            public void onValidate(Request request)
+                                                            {
+                                                                Logger.log("Validating request " + request);
+                                                            }
+                                            
+                                                            @Override
+                                                            public void onCommit(Request request)
+                                                            {
+                                                                Logger.log("Commit request " + request);
+                                                            }
+                                            
+                                                            @Override
+                                                            public void onAbort(Request request)
+                                                            {
+                                                                Logger.log("Abort request " + request);
+                                                            }
+                                                     });
             
             registry.start(replica);
             coordinator.register(local, replica);
             Logger.log("Initialized replica service.");
         }
 
-        store = new Store(coordinator, readset, state.store);
+        store = new Store(coordinator, state, readset);
         registry.start(store);
         Logger.log("Initialized store service.");
     }

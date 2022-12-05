@@ -2,8 +2,7 @@ package server;
 
 import java.io.Serializable;
 import java.util.*;
-
-import common.EndPoint;
+import common.*;
 
 /**
  * The server states consists of the store and the endpoint locations of all
@@ -16,6 +15,12 @@ public class ServerState implements Serializable
     KVStore store;
     HashMap<EndPoint, ReplicaService> replicas;
 
+    public ServerState()
+    {
+        this.store = new KVStore(Config.defaultKVStorePath());
+        this.replicas = new HashMap<>();
+    }
+    
     public ServerState(KVStore store, HashMap<EndPoint, ReplicaService> replicas)
     {
         this.store = store;
