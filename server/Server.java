@@ -179,13 +179,13 @@ interface ParticipantListener
 /**
  * The participant/replicated service.
  */
-class Participant implements ReplicaService
+class Replica implements ReplicaService
 {
     private ServerState state;
     private ReadSet readset;
     private ParticipantListener listener;
 
-    Participant(ServerState state, ReadSet readset, ParticipantListener listener)
+    Replica(ServerState state, ReadSet readset, ParticipantListener listener)
     {
         this.state = state;
         this.readset = readset;
@@ -644,56 +644,56 @@ class Server
             state = coordinator.connect(local);
             Logger.log("Connected coordinator service and initialized replicated server state.\n" + state);
 
-            ReplicaService replica = new Participant(state, readset, 
-                                                     new ParticipantListener()
-                                                     {
-                                                            @Override
-                                                            public void onRemove(EndPoint addr)
+            ReplicaService replica = new Replica(state, readset, 
+                                                 new ParticipantListener()
+                                                 {
+                                                        @Override
+                                                        public void onRemove(EndPoint addr)
+                                                        {
+                                                            Logger.log("Removing replicated server " + addr + ".");
+                                                        }
+                                        
+                                                        @Override
+                                                        public void onAdd(EndPoint addr)
+                                                        {
+                                                            Logger.log("Adding replicated server " + addr + ".");
+                                                        }
+                                        
+                                                        @Override
+                                                        public void onShutdown(ReplicaService replica)
+                                                        {
+                                                            Logger.log("Recevied shutdown event from the coordinator.");
+                                        
+                                                            try
                                                             {
-                                                                Logger.log("Removing replicated server " + addr + ".");
+                                                                registry.shutdown(store);
+                                                                registry.shutdown(replica);
+                                                                shutdownByCoordinator = true;
                                                             }
-                                            
-                                                            @Override
-                                                            public void onAdd(EndPoint addr)
+                                                            catch (ServiceRegistryException | RemoteException | NotBoundException e)
                                                             {
-                                                                Logger.log("Adding replicated server " + addr + ".");
+                                                                Logger.warning("Failed to shutdown replicated server.", e);
                                                             }
-                                            
-                                                            @Override
-                                                            public void onShutdown(ReplicaService replica)
-                                                            {
-                                                                Logger.log("Recevied shutdown event from the coordinator.");
-                                            
-                                                                try
-                                                                {
-                                                                    registry.shutdown(store);
-                                                                    registry.shutdown(replica);
-                                                                    shutdownByCoordinator = true;
-                                                                }
-                                                                catch (ServiceRegistryException | RemoteException | NotBoundException e)
-                                                                {
-                                                                    Logger.warning("Failed to shutdown replicated server.", e);
-                                                                }
-                                                            }
-                                            
-                                                            @Override
-                                                            public void onValidate(Request request)
-                                                            {
-                                                                Logger.log("Validating request " + request);
-                                                            }
-                                            
-                                                            @Override
-                                                            public void onCommit(Request request)
-                                                            {
-                                                                Logger.log("Commit request " + request);
-                                                            }
-                                            
-                                                            @Override
-                                                            public void onAbort(Request request)
-                                                            {
-                                                                Logger.log("Abort request " + request);
-                                                            }
-                                                     });
+                                                        }
+                                        
+                                                        @Override
+                                                        public void onValidate(Request request)
+                                                        {
+                                                            Logger.log("Validating request " + request);
+                                                        }
+                                        
+                                                        @Override
+                                                        public void onCommit(Request request)
+                                                        {
+                                                            Logger.log("Commit request " + request);
+                                                        }
+                                        
+                                                        @Override
+                                                        public void onAbort(Request request)
+                                                        {
+                                                            Logger.log("Abort request " + request);
+                                                        }
+                                                 });
             
             registry.start(replica);
             coordinator.register(local, replica);
