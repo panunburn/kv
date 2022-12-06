@@ -23,11 +23,6 @@ public abstract class Request implements Serializable
     }
 
     /**
-     * Create a request.
-     */
-    protected Request() {}
-
-    /**
      * Apply a request visitor.
      * 
      * @param <T> the return type of the Request visitor
@@ -35,9 +30,4 @@ public abstract class Request implements Serializable
      * @return an object with type T.
      */
     public abstract <T, E extends Throwable> T accept(RequestVisitor<T, E> v) throws E;
-
-    /**
-     * Convert the Request to String.
-     */
-    public abstract String toString();
 }
