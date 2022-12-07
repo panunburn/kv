@@ -1,5 +1,7 @@
 package protocol;
 
+import java.util.Objects;
+
 /**
  * 
  * This class represents the GET request with format "GET \<key\>".
@@ -49,5 +51,24 @@ public class GetRequest extends Request
     public String toString()
     {
         return "GET " + key;
+    }
+    
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(key);
+    }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        GetRequest other = (GetRequest) obj;
+        return Objects.equals(key, other.key);
     }
 }

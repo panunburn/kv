@@ -577,7 +577,7 @@ class Coordinator implements CoordinatorService
      * Propose a value to agree on for a PAXOS round
      * @param round the PAXOS round
      * @param value the value to agree on
-     * @return true if the value is accepted for the current round.
+     * @return true if the value is actually accepted for the current round.
      * @throws RemoteException if the id service fails.
      * @throws PaxosFailure if either the distinguished proposer or learner decides to fail.
      */
@@ -707,7 +707,7 @@ class Coordinator implements CoordinatorService
                                 });
         exclude(unresponsive);
         
-        return !highest.isPresent();
+        return !highest.isPresent() || highest.get().getProposal().getValue().equals(value);
     }
     
     /**
@@ -768,13 +768,14 @@ class Coordinator implements CoordinatorService
                                                try
                                                {
                                                    boolean behind = !propose(round, request);
-                                                   Logger.debug("PAXOS round " + round + " finished with " + behind + ".");
                                                    if (behind)
                                                    {
+                                                       Logger.debug("PAXOS round " + round + " finished but behind.");
                                                        round++;
                                                    }
                                                    else
                                                    {
+                                                       Logger.debug("PAXOS round " + round + " finished.");
                                                        return null;
                                                    }
                                                }   

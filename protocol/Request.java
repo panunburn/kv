@@ -30,4 +30,10 @@ public abstract class Request implements Serializable
      * @return an object with type T.
      */
     public abstract <T, E extends Throwable> T accept(RequestVisitor<T, E> v) throws E;
+    
+    public abstract String toString();
+    
+    public abstract boolean equals(Object object);
+    
+    public abstract int hashCode();
 }

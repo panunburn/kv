@@ -1,5 +1,7 @@
 package protocol;
 
+import java.util.Objects;
+
 /**
  * 
  * This class represents the DELETE request with format "DELETE \<key\>".
@@ -49,5 +51,24 @@ public class DeleteRequest extends Request
     public String toString()
     {
         return "DELETE " + key;
+    }
+    
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(key);
+    }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        DeleteRequest other = (DeleteRequest) obj;
+        return Objects.equals(key, other.key);
     }
 }
