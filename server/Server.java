@@ -971,7 +971,7 @@ enum ServerType
 /**
  * The Server.
  */
-class Server
+public class Server
 {
     private static ServiceRegistry registry;
     
