@@ -2,6 +2,10 @@ package server;
 
 import java.io.Serializable;
 
+/**
+ * The PAXOS proposal type.
+ * @param <V> the value type
+ */
 public class Proposal<V extends Serializable> implements Serializable
 {
     private static final long serialVersionUID = 1L;

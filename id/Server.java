@@ -6,6 +6,9 @@ import java.rmi.server.RemoteServer;
 
 import common.*;
 
+/**
+ * The server to provide unique ids.
+ */
 public class Server implements UniqueIdService
 {
     private static ServiceRegistry registry; 

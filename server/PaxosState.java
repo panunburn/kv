@@ -5,7 +5,7 @@ import java.util.*;
 import common.Pair;
 
 /**
- * The accepted PAXOS states.
+ * The accepted PAXOS states for multiple rounds.
  *
  */
 public class PaxosState<V extends Serializable> implements Serializable
