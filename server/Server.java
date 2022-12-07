@@ -543,6 +543,20 @@ class Coordinator implements CoordinatorService
                                 Logger.warning("Replicated server " + p + " didn't respond in time.", e);
                             }
                         });
+        
+        pool.shutdown();
+        try
+        {
+            while (!pool.awaitTermination(Config.defaultPaxosTimeout(), TimeUnit.MILLISECONDS))
+            {
+                pool.shutdownNow();
+            }
+        }
+        catch (InterruptedException e)
+        {
+            pool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static boolean isMajority(int n, int N)
@@ -563,14 +577,14 @@ class Coordinator implements CoordinatorService
     /**
      * Run PAXOS to agree on the same transaction.
      * @param round the PAXOS round
-     * @param request the request to agree on
-     * @return true if the round is behind the current round.
-     * @throws RemoteException
+     * @param value the value to agree on
+     * @return true if the value is accepted for the current round.
+     * @throws RemoteException if the id service fails.
      * @throws PaxosFailure if either the distinguished proposer or learner decides to fail.
      */
-    private synchronized boolean paxos(int round, Request request) throws RemoteException, PaxosFailure
+    private synchronized boolean paxos(int round, Request value) throws RemoteException, PaxosFailure
     {
-        Logger.log("Running PAXOS round " + round + " with committed request " + request + ".");
+        Logger.log("Running PAXOS round " + round + " with committed request " + value + ".");
 
         if (Paxos.mightFail())
         {
@@ -580,38 +594,40 @@ class Coordinator implements CoordinatorService
         // phase 1
         final HashMap<EndPoint, Promise<Request>> promises = new HashMap<>(state.replicas.size());
         final ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-        long n = 0;
         while (!isMajority(promises.size(), state.replicas.size()))
         {
-            promises.clear();
-            n = id.next();
+            final long n = id.next();
 
-            // collect promises
-            Promise<Request> p = prepare(round, n);
-            if (p != null)
+            // recollect promises
+            promises.clear();
+            
             {
-                Logger.log("Got " + p + " from " + local + ".");
-                promises.put(local, p);
+                Promise<Request> p = prepare(round, n);
+                if (p != null)
+                {
+                    Logger.log("Got " + p + " from " + local + ".");
+                    promises.put(local, p);
+                }
             }
             
             unresponsive.clear();
-            for (Map.Entry<EndPoint, ReplicaService> i : state.replicas.entrySet())
-            {
-                try
-                {
-                    p = i.getValue().prepare(round, n);
-                    if (p != null)
-                    {
-                        Logger.log("Got " + p + " from " + i.getKey() + ".");
-                        promises.put(i.getKey(), p);
-                    }
-                }
-                catch (RemoteException e)
-                {
-                    Logger.warning("Replicated server " + i.getKey() + " didn't respond in time.", e);
-                    unresponsive.add(i.getKey());
-                }
-            }
+            state.replicas.forEach((a, r) -> 
+                                   {
+                                       try
+                                       {
+                                           Promise<Request> p = r.prepare(round, n);
+                                           if (p != null)
+                                           {
+                                               Logger.log("Got " + p + " from " + a + ".");
+                                               promises.put(a, p);
+                                           }
+                                       }
+                                       catch (RemoteException e)
+                                       {
+                                           Logger.warning("Replicated server " + a + " didn't respond in time.", e);
+                                           unresponsive.add(a);
+                                       }
+                                   });
             exclude(unresponsive);
         }
         
@@ -621,18 +637,19 @@ class Coordinator implements CoordinatorService
         }
         
         // phase 2
+        final long pid = promises.values().stream().findAny().get().getId(); // promises shouldn't be empty
         final Optional<Promise<Request>> highest = promises.values().stream()
                                                   .filter((p) -> { return p.getProposal() != null; })
                                                   .max((a, b) -> { return Long.compare(a.getProposal().getId(), b.getProposal().getId());});
-        final Request value = highest.isPresent() ? highest.get().getProposal().getValue() : request;
-        final Proposal<Request> proposal = new Proposal<Request>(n, value);
+        final Request val = highest.isPresent() ? highest.get().getProposal().getValue() : value;
+        final Proposal<Request> proposal = new Proposal<Request>(pid, val);
 
         // collect accepted values based on promises
         final ArrayList<Request> accepted = new ArrayList<>(promises.size());
         while (accepted.isEmpty())
         {
             unresponsive.clear();
-            promises.forEach((EndPoint a, Promise<Request> promise) -> 
+            promises.forEach((EndPoint a, Promise<Request> p) -> 
                              {
                                  try
                                  {
@@ -674,15 +691,15 @@ class Coordinator implements CoordinatorService
         
         // learn the accepted value
         Logger.debug("Accepted values: " + accepted);
-        final Request v = accepted.stream().findAny().get(); // note the accepted cannot be empty
-        learn(round, v);
+        final Request agreed = accepted.stream().findAny().get(); // note the accepted cannot be empty
+        learn(round, agreed);
         unresponsive.clear();
         state.replicas.forEach((EndPoint a, ReplicaService r) ->
                                 {
                                     try
                                     {
-                                        r.learn(round, v);
-                                        Logger.log("Server " + a + " has learned value " + v + " in round " + round + ".");
+                                        r.learn(round, agreed);
+                                        Logger.log("Server " + a + " has learned value " + agreed + " in round " + round + ".");
                                     }
                                     catch (RemoteException e)
                                     {
@@ -691,7 +708,7 @@ class Coordinator implements CoordinatorService
                                 });
         exclude(unresponsive);
         
-        return highest.isPresent();
+        return !highest.isPresent();
     }
     
     /**
@@ -711,32 +728,37 @@ class Coordinator implements CoordinatorService
         // two-phase commit protocol
 
         // 1. voting phase
-        // TODO refactor coordVote with `local`
         Logger.log("Validating request " + request);
-        final boolean coordVote = readset.validate(request);
-        Logger.log("Validated request " + request + " on coordinator with result " + coordVote + ".");
-
         final HashMap<EndPoint, Boolean> votes = new HashMap<EndPoint, Boolean>(state.replicas.size());
-        final ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
-        for (Map.Entry<EndPoint, ReplicaService> i : state.replicas.entrySet())
         {
-            try
+            boolean vote = readset.validate(request);
+            if (vote)
             {
-                boolean vote = i.getValue().validate(request);
-                Logger.log("Validated request " + request + " on server " + i.getKey() + " with result " + vote + ".");
-                votes.put(i.getKey(), vote);
-            }
-            catch (RemoteException e)
-            {
-                Logger.warning("Replicated server " + i.getKey() + " didn't respond in time.", e);
-                unresponsive.add(i.getKey());
+                votes.put(local, vote);
+                Logger.log("Validated request " + request + " on coordinator with result " + vote + ".");
             }
         }
+
+        final ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
+        state.replicas.forEach((a, r) -> 
+                               {
+                                   try
+                                   {
+                                       boolean vote = r.validate(request);
+                                       Logger.log("Validated request " + request + " on server " + a + " with result " + vote + ".");
+                                       votes.put(a, vote);
+                                   }
+                                   catch (RemoteException e)
+                                   {
+                                       Logger.warning("Replicated server " + a + " didn't respond in time.", e);
+                                       unresponsive.add(a);
+                                   } 
+                               });
         exclude(unresponsive);
 
         // 2. completion phase
         unresponsive.clear();
-        if (coordVote && votes.values().stream().allMatch((Boolean b) -> { return b; }))
+        if (votes.values().stream().allMatch((Boolean b) -> { return b; }))
         {
             // run PAXOS concurrently
             Future<Void> f = pool.submit(() -> 
@@ -746,7 +768,7 @@ class Coordinator implements CoordinatorService
                                            {
                                                try
                                                {
-                                                   boolean behind = paxos(round, request);
+                                                   boolean behind = !paxos(round, request);
                                                    Logger.debug("PAXOS round " + round + " finished with " + behind + ".");
                                                    if (behind)
                                                    {
@@ -813,18 +835,22 @@ class Coordinator implements CoordinatorService
             Logger.log("Aborting request " + request);
             votes.forEach((EndPoint p, Boolean v) ->
                           {
-                              if (v.booleanValue() == true)
-                              {
-                                  try
+                              final ReplicaService r = state.replicas.get(p);
+                              if (r != null) // replicas
+                              { 
+                                  if (v.booleanValue() == true)
                                   {
-                                      state.replicas.get(p).abort(request);
-                                  }
-                                  catch (RemoteException e)
-                                  {
-                                      Logger.warning("Replicated server " + p + " didn't respond in time.", e);
-                                      unresponsive.add(p);
-                                  }
-                               }
+                                      try
+                                      {
+                                          state.replicas.get(p).abort(request);
+                                      }
+                                      catch (RemoteException e)
+                                      {
+                                          Logger.warning("Replicated server " + p + " didn't respond in time.", e);
+                                          unresponsive.add(p);
+                                      }
+                                   }
+                              }
                           });
             exclude(unresponsive);
             Logger.log("Request " + request + " has been aborted.");
