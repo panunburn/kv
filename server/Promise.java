@@ -1,6 +1,7 @@
 package server;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * The PAXOS Promise.
@@ -37,5 +38,22 @@ public class Promise<V extends Serializable> implements Serializable
     public String toString()
     {
         return "Promise [id=" + id + ", proposal=" + proposal + "]";
+    }
+    
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(id, proposal);
+    }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+        if (this == obj)
+            return true;
+        if (!(obj instanceof Promise))
+            return false;
+        Promise<?> other = (Promise<?>) obj;
+        return id == other.id && Objects.equals(proposal, other.proposal);
     }
 }

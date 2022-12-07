@@ -1,6 +1,7 @@
 package server;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * The PAXOS proposal type.
@@ -32,5 +33,22 @@ public class Proposal<V extends Serializable> implements Serializable
     public String toString()
     {
         return "Proposal [id=" + id + ", value=" + value + "]";
+    }
+    
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(id, value);
+    }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+        if (this == obj)
+            return true;
+        if (!(obj instanceof Proposal))
+            return false;
+        Proposal<?> other = (Proposal<?>) obj;
+        return id == other.id && Objects.equals(value, other.value);
     }
 }
