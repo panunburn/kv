@@ -7,7 +7,7 @@ import java.rmi.server.RemoteServer;
 import common.*;
 
 /**
- * The server to provide unique ids.
+ * The server to generate unique id numbers.
  */
 public class Server implements UniqueIdService
 {

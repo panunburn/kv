@@ -2,11 +2,12 @@ ALL: build
 
 .PHONY: build clean client id server
 
+JAR = kv.jar
+BIN = bin
+
 SHARED = common protocol
 EXEC = client id server
 SHARED_FILES = $(addsuffix /*.java,$(SHARED))
-
-BIN = bin
 
 $(BIN):
 	mkdir $(BIN)
@@ -21,8 +22,8 @@ id: $(BIN) $(SHARED_FILES) id/*.java
 	javac -d $^
 
 build: $(BIN) $(EXEC)
-	jar -cvf kv.jar $(addprefix -C $(BIN) ,$(SHARED) $(EXEC))
+	jar -cvf $(JAR) $(addprefix -C $(BIN) ,$(SHARED) $(EXEC))
 
 clean:
 	rm -rf $(BIN)
-	rm -rf kv.jar
+	rm -rf $(JAR)

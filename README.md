@@ -9,7 +9,7 @@
 
 ## Build
 * `make` builds all `client`, `id`, and `server` packages under the `bin` directory and builds the `kv.jar` file. 
-* `make clean` removes the `bin` directory and the jar file.
+* `make clean` removes the `bin` directory and the `kv.jar` file.
 
 ## Usage
 +  `java -cp kv.jar id.Server <port>?` starts the global unique id service on a specified port. 
@@ -21,11 +21,11 @@
 
 ## Quick Run
 1. `java -cp kv.jar id.Server` starts the global unique id service with the default port `1099`.
-2. `java -cp kv.jar server.Server coordinator 1099 1110` starts the coordinator on the current host given the unique id service endpoint `1099` and the port number it will use.
-3. `java -cp kv.jar server.Server replica localhost:1110 1111` starts the replicated server on the current host with port 1111 given the coordinator's endpoint location, `localhost:1099`.
-4. `java -cp kv.jar server.Server replica localhost:1110 1111` starts another replicated server on the current host with port 1111 given the coordinator's endpoint location, `localhost:1099`.
+2. `java -cp kv.jar server.Server coordinator 1099 1110` starts the coordinator on the current host given the unique id service endpoint `1099` and the port number, `1110`, it will use.
+3. `java -cp kv.jar server.Server replica localhost:1110 1111` starts the replicated server on the current host with port `1111` given the coordinator's endpoint location, `localhost:1110`.
+4. `java -cp kv.jar server.Server replica localhost:1110 1112` starts another replicated server on the current host with port `1112` given the coordinator's endpoint location, `localhost:1110`.
 5. `java -cp kv.jar client.Client 1110` starts the client to connect to the coordinator.
-6. `java -cp kv.jar client.Client localhost:1111` or just `java client.Client 1111` starts the client connecting to the replicated server we have just started.
+6. `java -cp kv.jar client.Client localhost:1111` or `java client.Client 1112` starts the client connecting to the replicated server we have just started.
 
 The `logs` folder contains an example run where we have 2 clients interacting with 5 servers, where the replicated servers can be added and removed (when terminated) dynamically. 
 
