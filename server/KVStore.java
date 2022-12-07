@@ -11,7 +11,7 @@ public class KVStore implements Serializable
 {
     private static final long serialVersionUID = 1L;
 
-    private HashMap<String, String> map;
+    private HashMap<String, String> store;
 
     /**
      * Create a key value Store by first trying to load a predefined store file
@@ -24,10 +24,10 @@ public class KVStore implements Serializable
     public KVStore(String path)
     {
         File f = new File(path);
-        map = (HashMap<String, String>) Utils.restore(f);
-        if (map != null)
+        store = (HashMap<String, String>) Utils.restore(f);
+        if (store != null)
         {
-            if (!map.isEmpty())
+            if (!store.isEmpty())
             {
                 Logger.log("Predefined key value store read:\n" + this.toString());
             }
@@ -39,7 +39,7 @@ public class KVStore implements Serializable
         else
         {
             Logger.warning("Failed to restore the key value store from " + path + ".");
-            map = new HashMap<String, String>();
+            store = new HashMap<String, String>();
         }
     }
 
@@ -50,31 +50,28 @@ public class KVStore implements Serializable
      */
     public KVStore(KVStore store)
     {
-        this.map = store.map;
+        this.store = store.store;
     }
 
-    /**
-     * Convert the Store to String.
-     */
     @Override
-    public synchronized String toString()
+    public String toString()
     {
-        return map.toString();
+        return "KV Store [store=" + store + "]";
     }
 
     public synchronized String get(String key)
     {
-        return map.get(key);
+        return store.get(key);
     }
 
     public synchronized String put(String key, String val)
     {
-        return map.put(key, val);
+        return store.put(key, val);
     }
 
     public synchronized String delete(String key)
     {
-        return map.remove(key);
+        return store.remove(key);
     }
 
     /**
@@ -84,6 +81,6 @@ public class KVStore implements Serializable
      */
     public void save(String path)
     {
-        Utils.save(map, new File(path));
+        Utils.save(store, new File(path));
     }
 }

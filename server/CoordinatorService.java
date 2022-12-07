@@ -7,7 +7,7 @@ import protocol.Request;
 /**
  * The service interfaces between the server and the coordinator.
  */
-public interface CoordinatorService extends Remote
+public interface CoordinatorService extends PaxosService<Request>
 {
     /**
      * Connect a replicated server to the coordinator.

@@ -3,11 +3,13 @@
  */
 package server;
 
+import java.io.Serializable;
 import java.net.*;
 import java.net.UnknownHostException;
 import java.rmi.*;
 import java.rmi.server.RemoteServer;
 import java.util.*;
+import java.util.concurrent.*;
 
 import common.*;
 import id.UniqueIdService;
@@ -159,6 +161,106 @@ class ProcessRequest implements RequestVisitor<String, NoThrow>
 }
 
 /**
+ * Generic PAXOS service.
+ */
+class Paxos<V extends Serializable> implements PaxosService<V>
+{
+    private final static Random rand = new Random();
+    private PaxosState<V> state;
+    
+    Paxos()
+    {
+        this(new PaxosState<>());
+    }
+    
+    Paxos(PaxosState<V> state)
+    {
+        this.state = state;
+    }
+    
+    public static boolean mightFail()
+    {
+        return rand.nextInt(100) <= Config.defaultPaxosFailureRate(); 
+    }
+    
+    @Override
+    public synchronized Promise<V> prepare(int round, long id) throws RemoteException
+    {
+        if (mightFail())
+        {
+            Logger.debug("Acceptor decides to fail.");
+            return null;
+        }
+        
+        Pair<Long, Proposal<V>> p = state.get(round);
+        if (p == null)
+        {
+            state.init(round, id);            
+            return new Promise<>(id);
+        }
+        else // round existed
+        {
+            if (id <= p.getFirst())
+            {
+                return null;
+            }
+            else 
+            {                
+                p.setFirst(id);
+                if (p.getSecond() == null) // no accepted proposal yet
+                {
+                    return new Promise<>(id);
+                }
+                else // some accepted proposal
+                {
+                    return new Promise<>(id, p.getSecond());                    
+                }
+            }
+        }
+    }
+    
+    @Override
+    public synchronized V accept(int round, Proposal<V> proposal) throws RemoteException
+    {
+        if (mightFail()) 
+        {
+            Logger.debug("Acceptor decides to fail.");
+            return null;
+        }
+        
+        Pair<Long, Proposal<V>> p = state.get(round);
+        if (p == null)
+        {
+            throw new PaxosException("Failed to accept " + proposal + ". It hasn't been proposed yet.");
+        }
+        else // round existed
+        {
+            if (proposal.getId() == p.getFirst())
+            {
+                p.setSecond(proposal);
+                return proposal.getValue();
+            }
+            else
+            {
+                return null;
+            }
+        }
+    }
+    
+    @Override
+    public void learn(int round, V value) throws RemoteException 
+    {
+        if (mightFail())
+        {
+            Logger.debug("Learner decides to fail.");
+            return;
+        }
+        
+        Logger.log("Paxos round " + round + " has learned value " + value + ".");
+    }
+}
+
+/**
  * The participant event listener.
  */
 interface ParticipantListener
@@ -184,12 +286,14 @@ class Replica implements ReplicaService
     private ServerState state;
     private ReadSet readset;
     private ParticipantListener listener;
+    private Paxos<Request> logs;
 
     Replica(ServerState state, ReadSet readset, ParticipantListener listener)
     {
         this.state = state;
         this.readset = readset;
         this.listener = listener;
+        this.logs = new Paxos<>(state.paxos);
     }
 
     @Override
@@ -240,6 +344,24 @@ class Replica implements ReplicaService
     {
         listener.onAbort(request);
     }
+
+    @Override
+    public Promise<Request> prepare(int round, long id) throws RemoteException
+    {
+        return logs.prepare(round, id);
+    }
+
+    @Override
+    public Request accept(int round, Proposal<Request> proposal) throws RemoteException
+    {
+        return logs.accept(round, proposal);
+    }
+
+    @Override
+    public void learn(int round, Request value) throws RemoteException
+    {
+        logs.learn(round, value);
+    }
 }
 
 /**
@@ -250,14 +372,22 @@ class Coordinator implements CoordinatorService
     private UniqueIdService id;
     private ServerState state;
     private ReadSet readset;
+    private final EndPoint local; 
     private HashSet<EndPoint> partial;
-
-    public Coordinator(UniqueIdService id, ServerState state, ReadSet readset)
+    private Paxos<Request> logs;
+    private final ExecutorService pool = Executors.newFixedThreadPool(Config.defaultPaxosThreads());
+    
+    public Coordinator(UniqueIdService id, 
+                       ServerState state, 
+                       ReadSet readset, 
+                       EndPoint local)
     {
         this.id = id;
         this.state = state;
         this.readset = readset;
+        this.local = local;
         this.partial = new HashSet<>();
+        this.logs = new Paxos<>(state.paxos);
     }
     
     /**
@@ -274,6 +404,7 @@ class Coordinator implements CoordinatorService
             }
             catch (InterruptedException e)
             {
+                Thread.currentThread().interrupt();
                 Logger.debug("Thread " + Thread.currentThread() + " has been waken up.");
             }
         }
@@ -299,18 +430,18 @@ class Coordinator implements CoordinatorService
             for (EndPoint u : unresponsive)
             {
                 state.replicas.forEach((EndPoint p, ReplicaService r) ->
-                                {
-                                    try
-                                    {
-                                        Logger.log("Removing unresponsive server " + u + " in " + p + ".");
-                                        r.remove(u);
-                                    }
-                                    catch (RemoteException e)
-                                    {
-                                        Logger.warning("Replicated server " + p + " has lost contact.", e);
-                                        newUnresponsive.add(p);
-                                    }
-                                });
+                                        {
+                                            try
+                                            {
+                                                Logger.log("Removing unresponsive server " + u + " in " + p + ".");
+                                                r.remove(u);
+                                            }
+                                            catch (RemoteException e)
+                                            {
+                                                Logger.warning("Replicated server " + p + " has lost contact.", e);
+                                                newUnresponsive.add(p);
+                                            }
+                                        });
             }
             unresponsive = newUnresponsive;
         }
@@ -414,6 +545,155 @@ class Coordinator implements CoordinatorService
                         });
     }
 
+    private static boolean isMajority(int n, int N)
+    {
+        return n > (N / 2);
+    }
+
+    static class PaxosFailure extends Exception
+    {
+        private static final long serialVersionUID = 1L;
+        
+        PaxosFailure(String msg)
+        {
+            super(msg);
+        }
+    }
+    
+    /**
+     * Run PAXOS to agree on the same transaction.
+     * @param round the PAXOS round
+     * @param request the request to agree on
+     * @return true if the round is behind the current round.
+     * @throws RemoteException
+     * @throws PaxosFailure if either the distinguished proposer or learner decides to fail.
+     */
+    private synchronized boolean paxos(int round, Request request) throws RemoteException, PaxosFailure
+    {
+        Logger.log("Running PAXOS round " + round + " with committed request " + request + ".");
+
+        if (Paxos.mightFail())
+        {
+            throw new PaxosFailure("The distinguished proposer decides to fail before phase 1.");
+        }
+        
+        // phase 1
+        final HashMap<EndPoint, Promise<Request>> promises = new HashMap<>(state.replicas.size());
+        final ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
+        long n = 0;
+        while (!isMajority(promises.size(), state.replicas.size()))
+        {
+            promises.clear();
+            n = id.next();
+
+            // collect promises
+            Promise<Request> p = prepare(round, n);
+            if (p != null)
+            {
+                Logger.log("Got " + p + " from " + local + ".");
+                promises.put(local, p);
+            }
+            
+            unresponsive.clear();
+            for (Map.Entry<EndPoint, ReplicaService> i : state.replicas.entrySet())
+            {
+                try
+                {
+                    p = i.getValue().prepare(round, n);
+                    if (p != null)
+                    {
+                        Logger.log("Got " + p + " from " + i.getKey() + ".");
+                        promises.put(i.getKey(), p);
+                    }
+                }
+                catch (RemoteException e)
+                {
+                    Logger.warning("Replicated server " + i.getKey() + " didn't respond in time.", e);
+                    unresponsive.add(i.getKey());
+                }
+            }
+            exclude(unresponsive);
+        }
+        
+        if (Paxos.mightFail())
+        {
+            throw new PaxosFailure("The distinguished proposer decides to fail after phase 1 but before phase 2.");
+        }
+        
+        // phase 2
+        final Optional<Promise<Request>> highest = promises.values().stream()
+                                                  .filter((p) -> { return p.getProposal() != null; })
+                                                  .max((a, b) -> { return Long.compare(a.getProposal().getId(), b.getProposal().getId());});
+        final Request value = highest.isPresent() ? highest.get().getProposal().getValue() : request;
+        final Proposal<Request> proposal = new Proposal<Request>(n, value);
+
+        // collect accepted values based on promises
+        final ArrayList<Request> accepted = new ArrayList<>(promises.size());
+        while (accepted.isEmpty())
+        {
+            unresponsive.clear();
+            promises.forEach((EndPoint a, Promise<Request> promise) -> 
+                             {
+                                 try
+                                 {
+                                     final ReplicaService r = state.replicas.get(a);
+                                     
+                                     final Request v;
+                                     if (r == null) // coordinator
+                                     {
+                                         v = accept(round, proposal);
+                                     }
+                                     else 
+                                     {
+                                         v = r.accept(round, proposal);
+                                     }
+                                     
+                                     if (v != null) 
+                                     {
+                                         Logger.log("Server " + a + " has accepted " + proposal + ".");
+                                         accepted.add(v);
+                                     }
+                                 }
+                                 catch (PaxosException e)
+                                 {
+                                     Logger.debug(e);
+                                 }
+                                 catch (RemoteException e)
+                                 {
+                                     Logger.warning("Replicated server " + a + " didn't respond in time.", e);
+                                     unresponsive.add(a);
+                                 }
+                             });
+            exclude(unresponsive);
+        }
+        
+        if (Paxos.mightFail())
+        {
+            throw new PaxosFailure("The distinguished learner decides to fail.");
+        }
+        
+        // learn the accepted value
+        Logger.debug("Accepted values: " + accepted);
+        final Request v = accepted.stream().findAny().get(); // note the accepted cannot be empty
+        learn(round, v);
+        unresponsive.clear();
+        state.replicas.forEach((EndPoint a, ReplicaService r) ->
+                                {
+                                    try
+                                    {
+                                        r.learn(round, v);
+                                        Logger.log("Server " + a + " has learned value " + v + " in round " + round + ".");
+                                    }
+                                    catch (RemoteException e)
+                                    {
+                                        unresponsive.add(a);
+                                    }
+                                });
+        exclude(unresponsive);
+        
+        return highest.isPresent();
+    }
+    
     /**
      * Broadcast a request to all available replicated servers. The two-phase commit
      * protocol is adopted to commit or abort a request.
@@ -431,19 +711,20 @@ class Coordinator implements CoordinatorService
         // two-phase commit protocol
 
         // 1. voting phase
+        // TODO refactor coordVote with `local`
         Logger.log("Validating request " + request);
-        boolean coordVote = readset.validate(request);
+        final boolean coordVote = readset.validate(request);
         Logger.log("Validated request " + request + " on coordinator with result " + coordVote + ".");
 
-        HashMap<EndPoint, Boolean> responded = new HashMap<EndPoint, Boolean>();
-        ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
+        final HashMap<EndPoint, Boolean> votes = new HashMap<EndPoint, Boolean>(state.replicas.size());
+        final ArrayList<EndPoint> unresponsive = new ArrayList<EndPoint>();
         for (Map.Entry<EndPoint, ReplicaService> i : state.replicas.entrySet())
         {
             try
             {
                 boolean vote = i.getValue().validate(request);
                 Logger.log("Validated request " + request + " on server " + i.getKey() + " with result " + vote + ".");
-                responded.put(i.getKey(), vote);
+                votes.put(i.getKey(), vote);
             }
             catch (RemoteException e)
             {
@@ -455,50 +736,118 @@ class Coordinator implements CoordinatorService
 
         // 2. completion phase
         unresponsive.clear();
-        if (coordVote && responded.values().stream().allMatch((Boolean b) -> { return b; }))
+        if (coordVote && votes.values().stream().allMatch((Boolean b) -> { return b; }))
         {
+            // run PAXOS concurrently
+            Future<Void> f = pool.submit(() -> 
+                                        {
+                                           int round = state.paxos.getNextRound();
+                                           while (true)
+                                           {
+                                               try
+                                               {
+                                                   boolean behind = paxos(round, request);
+                                                   Logger.debug("PAXOS round " + round + " finished with " + behind + ".");
+                                                   if (behind)
+                                                   {
+                                                       round++;
+                                                   }
+                                                   else
+                                                   {
+                                                       return null;
+                                                   }
+                                               }   
+                                               catch (PaxosFailure e)
+                                               {
+                                                   Logger.warning(e);
+                                                   // retry current round
+                                               }
+                                           }
+                                        });
+            
             Logger.log("Committing request " + request);
             state.replicas.forEach((EndPoint p, ReplicaService r) ->
-            {
-                try
-                {
-                    Logger.log("Committing request " + request + " on server " + p + ".");
-                    r.commit(request);
-                }
-                catch (RemoteException e)
-                {
-                    Logger.warning("Replicated server " + p + " didn't respond in time.", e);
-                    unresponsive.add(p);
-                }
-            });
+                                    {
+                                        try
+                                        {
+                                            Logger.log("Committing request " + request + " on server " + p + ".");
+                                            r.commit(request);
+                                        }
+                                        catch (RemoteException e)
+                                        {
+                                            Logger.warning("Replicated server " + p + " didn't respond in time.", e);
+                                            unresponsive.add(p);
+                                        }
+                                    });
             exclude(unresponsive);
 
-            final String val = request.accept(new ProcessRequest(state));
+            final String response = request.accept(new ProcessRequest(state));
             Logger.log("Request " + request + " has been committed.");
-            return val;
+            
+            // run PAXOS concurrently
+            pool.submit(() -> 
+                        {
+                            try
+                            {
+                                f.get(Config.defaultPaxosTimeout(), TimeUnit.MILLISECONDS);
+                            }
+                            catch (TimeoutException e)
+                            {
+                                Logger.warning("PAXOS didn't complete in time.");
+                                f.cancel(true);
+                            }
+                            catch (InterruptedException e)
+                            {
+                                Thread.currentThread().interrupt();
+                            }
+                            catch (ExecutionException e)
+                            {
+                                Logger.warning("PAXOS didn't complete properly.", e);
+                            }
+                        });
+            
+            return response;
         }
         else
         {
             Logger.log("Aborting request " + request);
-            responded.forEach((EndPoint p, Boolean v) ->
+            votes.forEach((EndPoint p, Boolean v) ->
+                          {
+                              if (v.booleanValue() == true)
                               {
-                                  if (v.booleanValue() == true)
+                                  try
                                   {
-                                      try
-                                      {
-                                          state.replicas.get(p).abort(request);
-                                      }
-                                      catch (RemoteException e)
-                                      {
-                                          Logger.warning("Replicated server " + p + " didn't respond in time.", e);
-                                          unresponsive.add(p);
-                                      }
-                                   }
-                              });
+                                      state.replicas.get(p).abort(request);
+                                  }
+                                  catch (RemoteException e)
+                                  {
+                                      Logger.warning("Replicated server " + p + " didn't respond in time.", e);
+                                      unresponsive.add(p);
+                                  }
+                               }
+                          });
             exclude(unresponsive);
             Logger.log("Request " + request + " has been aborted.");
             throw new TransactionAbortException();
         }
+    }
+
+    @Override
+    public Promise<Request> prepare(int round, long id) throws RemoteException
+    {
+        return logs.prepare(round, id);
+    }
+
+    @Override
+    public Request accept(int round, Proposal<Request> proposal) throws RemoteException
+    {
+        return logs.accept(round, proposal);
+    }
+
+    @Override
+    public void learn(int round, Request value) throws RemoteException
+    {
+        logs.learn(round, value);
     }
 }
 
@@ -623,7 +972,7 @@ class Server
             state = new ServerState();
             Logger.log("Initialized coordinator server state.\n" + state);
 
-            coordinator = new Coordinator(id, state, readset);
+            coordinator = new Coordinator(id, state, readset, local);
             Logger.log("Initialized coordinator service.");
 
             registry.start(coordinator);

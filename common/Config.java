@@ -67,4 +67,28 @@ public class Config
     {
         return 3000;
     }
+    
+    /**
+     * @return the default number of threads used by PAXOS.
+     */
+    public static int defaultPaxosThreads()
+    {
+        return 4;
+    }
+    
+    /**
+     * @return the default failure rate in percentage for PAXOS acceptors.
+     */
+    public static int defaultPaxosFailureRate()
+    {
+        return 20; 
+    }
+    
+    /**
+     * @return the default timeout for PAXOS in milliseconds 
+     */
+    public static int defaultPaxosTimeout()
+    {
+        return 5000;
+    }
 }

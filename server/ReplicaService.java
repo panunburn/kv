@@ -8,7 +8,7 @@ import protocol.Request;
  * The service interfaces between the coordinator and replicated servers.
  *
  */
-public interface ReplicaService extends Remote
+public interface ReplicaService extends PaxosService<Request>
 {
     /**
      * Capture the event whenever a new replicated server has been added.
