@@ -1012,7 +1012,7 @@ public class Server
             {
                 registry = new ServiceRegistry(port);
                 System.setProperty("sun.rmi.transport.tcp.responseTimeout", String.valueOf(Config.defaultResponseTimeout()));
-                
+
                 local = new EndPoint(InetAddress.getLocalHost(), port);
                 readset = new ReadSet();
                 

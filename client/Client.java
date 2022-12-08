@@ -23,33 +23,27 @@ class Client
 
             if (args.length == 0)
             {
-                server = new EndPoint(CmdLineParser.parseHostname("localhost"), Config.defaultServerPortNumber());
+                server = CmdLineParser.parseEndPoint(Config.defaultServerHostName(), Config.defaultServerPortNumber());
             }
             else if (args.length == 1)
             {
-                server = new EndPoint(CmdLineParser.parseHostname("localhost"), CmdLineParser.parsePort(args[0], Config.defaultServerPortNumber()));
-            }
-            else if (args.length == 2)
-            {
-                server = new EndPoint(CmdLineParser.parseHostname(args[0]), CmdLineParser.parsePort(args[1], Config.defaultServerPortNumber()));
+                server = CmdLineParser.parseEndPoint(args[0], Config.defaultServerPortNumber());
             }
             else
             {
-                throw new CmdLineParserException("Invalid client inputs. Usage: java client.Client <ip address | host name>? <port number>?.");
+                throw new CmdLineParserException("Invalid client inputs. Usage: java client.Client <endpoint>?.");
             }
 
+            System.setProperty("sun.rmi.transport.tcp.responseTimeout", String.valueOf(Config.defaultResponseTimeout()));            
             StoreService store = ServiceRegistry.connect(server, StoreService.class);
             Logger.log("Connected to the server.");
 
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-
             while (true)
             {
                 try
                 {
-                    // read input from STDIN
                     Logger.input("QUERY> ");
-
                     String input = br.readLine();
 
                     // if user inputs EOF, then quit
@@ -134,6 +128,44 @@ class Client
                 {
                     // TODO Automatically retry other available severs.
                     Logger.warning("Service exception.", e);
+                    
+                    while (true)
+                    {
+                        String input;
+                        try
+                        {
+                            Logger.input("Please input another endpoint to reconnect: ");
+                            input = br.readLine();
+    
+                            // if user inputs EOF, then quit
+                            if (input == null)
+                            {
+                                Logger.newline();
+                                Logger.log("Exiting ...");
+                                return;
+                            }
+                            else
+                            {
+                                final EndPoint retry = CmdLineParser.parseEndPoint(input, Config.defaultServerPortNumber());
+                                store = ServiceRegistry.connect(retry, StoreService.class);
+                                Logger.log("Reconnected to the server.");
+                                break;
+                            }
+                        }
+                        catch (RemoteException | NotBoundException e1)
+                        {
+                            Logger.warning("Service unavailable.");
+                        }
+                        catch (CmdLineParserException e1)
+                        {
+                            Logger.warning("Invalid endpoint.");
+                        }
+                        catch (IOException e1)
+                        {
+                            Logger.error("Failed to read input query.", e);
+                            System.exit(-1);
+                        }
+                    }
                 }
                 catch (IOException e)
                 {

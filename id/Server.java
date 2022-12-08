@@ -1,6 +1,8 @@
 package id;
 
 import java.io.File;
+import java.net.*;
+import java.net.UnknownHostException;
 import java.rmi.*;
 import java.rmi.server.RemoteServer;
 
@@ -63,7 +65,8 @@ public class Server implements UniqueIdService
             
             Server server = new Server(port, Config.defaultIdStorePath());
             registry.start(server);
-            Logger.log("Server is up.");
+            final EndPoint local = new EndPoint(InetAddress.getLocalHost(), port);
+            Logger.log("Server is up at host " + local.getHost().getHostName() + " with address " + local.getHost().getHostAddress() + " and port " + local.getPort() + ".");
         }
         catch (ServiceRegistryException e)
         {
@@ -78,6 +81,11 @@ public class Server implements UniqueIdService
         catch (CmdLineParserException e)
         {
             Logger.error(e);
+            System.exit(-1);
+        }
+        catch (UnknownHostException e)
+        {
+            Logger.error("Failed to start the server.", e);
             System.exit(-1);
         }
     }
