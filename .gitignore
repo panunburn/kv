@@ -2,5 +2,7 @@
 *.class
 *.jar
 *.store
+.classpath
+.project
 bin
 logs
