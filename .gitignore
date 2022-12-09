@@ -1,8 +1,6 @@
-*~
 *.class
 *.jar
-*.store
 .classpath
 .project
+.settings
 bin
-logs
