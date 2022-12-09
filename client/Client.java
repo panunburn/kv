@@ -7,6 +7,7 @@ import java.io.*;
 import java.rmi.*;
 
 import server.*;
+import transaction.TransactionId;
 import common.*;
 import protocol.*;
 
@@ -38,6 +39,7 @@ class Client
             StoreService store = ServiceRegistry.connect(server, StoreService.class);
             Logger.log("Connected to the server.");
 
+            TransactionId tid = null;
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
             while (true)
             {
@@ -56,64 +58,87 @@ class Client
                     else
                     {
                         Request request = RequestParser.parse(input);
-                        String value = store.process(request);
-                        request.accept(new RequestVisitor<Void, NoThrow>()
-                                       {
-                                            @Override
-                                            public Void visit(GetRequest r)
-                                            {
-                                                if (value == null)
-                                                {
-                                                    Logger.warning("Key " + r.key + " doesn't exist.");
-                                                }
-                                                else
-                                                {
-                                                    Logger.log("Got " + value + ".");
-                                                }
-                
-                                                return null;
-                                            }
-                
-                                            @Override
-                                            public Void visit(DeleteRequest r)
-                                            {
-                                                if (value == null)
-                                                {
-                                                    Logger.warning("Key " + r.key + " doesn't exist.");
-                                                }
-                                                else
-                                                {
-                                                    Logger.log("Deleted (" + r.key + ", " + value + ")");
-                                                }
-                
-                                                return null;
-                                            }
-                
-                                            @Override
-                                            public Void visit(PutRequest r)
-                                            {
-                                                if (value == null)
-                                                {
-                                                    Logger.log("Inserted (" + r.key + ", " + r.val + ")");
-                                                }
-                                                else if (value.equals(r.val))
-                                                {
-                                                    Logger.warning("(" + r.key + ", " + r.val + ") already exists.");
-                                                }
-                                                else
-                                                {
-                                                    Logger.log("Replaced (" + r.key + ", " + value + ") with (" + r.key + ", " + r.val + ")");
-                                                }
-                
-                                                return null;
-                                            }
-                
-                                            @Override
-                                            public Void visit(PrintRequest r)
-                                            {
-                                                return null;
-                                            }
-                                       });
+                        Response response = store.process(request, tid);
+                        tid = response.accept(new ResponseVisitor<TransactionId, NoThrow>()
+                                              {
+                                                    @Override
+                                                    public TransactionId visit(TransactionResponse r) throws NoThrow
+                                                    {
+                                                        if (request instanceof OpenRequest)
+                                                        {
+                                                            Logger.log("Transaction " + r.tid + " opened.");
+                                                            return r.tid;
+                                                        }
+                                                        else if (request instanceof CommitRequest)
+                                                        {
+                                                            Logger.log("Transaction " + r.tid + " committed.");
+                                                        }
+                                                        else
+                                                        {
+                                                            Logger.error("Unexpected response type for request " + request + ".");
+                                                        }
+        
+                                                        return null;
+                                                    }
+        
+                                                    @Override
+                                                    public TransactionId visit(ErrorResponse r) throws NoThrow
+                                                    {
+                                                        Logger.warning(r.toString());
+                                                        return null;
+                                                    }
+        
+                                                    @Override
+                                                    public TransactionId visit(ProcessResponse r) throws NoThrow
+                                                    {
+                                                        if (request instanceof GetRequest)
+                                                        {
+                                                            GetRequest get = (GetRequest) request;
+                                                            if (r.value == null)
+                                                            {
+                                                                Logger.warning("Key " + get.key + " doesn't exist.");
+                                                            }
+                                                            else
+                                                            {
+                                                                Logger.log("Got " + r.value + ".");
+                                                            }
+                                                        }
+                                                        else if (request instanceof DeleteRequest)
+                                                        {
+                                                            DeleteRequest del = (DeleteRequest) request;
+                                                            if (r.value == null)
+                                                            {
+                                                                Logger.warning("Key " + del.key + " doesn't exist.");
+                                                            }
+                                                            else
+                                                            {
+                                                                Logger.log("Deleted (" + del.key + ", " + r.value + ")");
+                                                            }
+                                                        }
+                                                        else if (request instanceof PutRequest)
+                                                        {
+                                                            PutRequest put = (PutRequest) request;
+                                                            if (r.value == null)
+                                                            {
+                                                                Logger.log("Inserted (" + put.key + ", " + put.val + ")");
+                                                            }
+                                                            else if (r.value.equals(put.val))
+                                                            {
+                                                                Logger.warning("(" + put.key + ", " + put.val + ") already exists.");
+                                                            }
+                                                            else
+                                                            {
+                                                                Logger.log("Replaced (" + put.key + ", " + r.value + ") with (" + put.key + ", " + put.val + ")");
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            Logger.error("Unexpected response type for request " + request + ".");
+                                                        }
+                                                        
+                                                        return null;
+                                                    }
+                                              });
                     }
                 }
                 catch (InvalidRequestException e)
@@ -122,6 +147,7 @@ class Client
                 }
                 catch (TransactionAbortException e)
                 {
+                    tid = null;
                     Logger.warning("Request aborted.", e);
                 }
                 catch (RemoteException e)

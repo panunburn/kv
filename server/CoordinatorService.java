@@ -2,7 +2,7 @@ package server;
 
 import java.rmi.*;
 import common.EndPoint;
-import protocol.Request;
+import protocol.*;
 
 /**
  * The service interfaces between the server and the coordinator.
@@ -43,12 +43,12 @@ public interface CoordinatorService extends PaxosService<Request>
     void shutdown() throws RemoteException;
 
     /**
-     * Broadcast the request to all available replicated servers.
+     * Process the request and update the replicas when the request commits.
      * 
-     * @param request the request to be broadcasted
-     * @return a nullable value depending on the request type.
-     * @throws RemoteException if the request aborted or any communication-related
-     *                         issues occurred.
+     * @param request the request to be processed.
+     * @return a response depending on the request type.
+     * @throws TransactionAbortException if the request in the current transaction is aborted.
+     * @throws RemoteException 
      */
-    String broadcast(Request request) throws RemoteException;
+    Response process(Request request) throws RemoteException;
 }

@@ -31,9 +31,12 @@ public abstract class Request implements Serializable
      */
     public abstract <T, E extends Throwable> T accept(RequestVisitor<T, E> v) throws E;
     
+    @Override
     public abstract String toString();
     
+    @Override
     public abstract boolean equals(Object object);
     
+    @Override
     public abstract int hashCode();
 }

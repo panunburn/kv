@@ -5,12 +5,12 @@ import java.io.*;
 public class Utils
 {
     /**
-     * Safe append two strings separated by a delimiter.
+     * Safely append two strings separated by a delimiter.
      * 
      * @param a     the first string
      * @param delim the delimiter, which should not be null
      * @param b     the second string
-     * @return the combined message.
+     * @return a non-null combined message.
      */
     public static String combine(String a, String delim, String b)
     {
@@ -25,15 +25,15 @@ public class Utils
     }
 
     /**
-     * Combine a message with an exception message with a space in between.
+     * Safely combine a message with an exception message with a space in between.
      * 
      * @param m any message
      * @param e an exception where the message will be appended to m
-     * @return the combined message.
+     * @return a non-null combined message.
      */
     public static String combine(String m, Exception e)
     {
-        return Utils.combine(m, " ", e.getMessage());
+        return Utils.combine(m, " ", e == null ? null : e.getMessage());
     }
 
     public static boolean isEmpty(String s)

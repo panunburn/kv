@@ -11,8 +11,9 @@ import java.util.*;
 import java.util.concurrent.*;
 
 import common.*;
-import id.UniqueIdService;
 import protocol.*;
+import transaction.TransactionId;
+import transaction.UniqueIdService;
 
 /**
  * The local read set.
@@ -84,33 +85,21 @@ class ReadSet
      */
     public boolean validate(Request request)
     {
-        String writing = request.accept(new RequestVisitor<String, NoThrow>()
-                                        {
-                                            @Override
-                                            public String visit(DeleteRequest r)
-                                            {
-                                                return r.key;
-                                            }
-                                
-                                            @Override
-                                            public String visit(PutRequest r)
-                                            {
-                                
-                                                return r.key;
-                                            }
-                                
-                                            @Override
-                                            public String visit(GetRequest r)
-                                            {
-                                                return null;
-                                            }
-                                
-                                            @Override
-                                            public String visit(PrintRequest r)
-                                            {
-                                                return null;
-                                            }
-                                        });
+        final String writing;
+        
+        if (request instanceof DeleteRequest)
+        {
+            writing = ((DeleteRequest) request).key;
+        }
+        else if (request instanceof PutRequest)
+        {
+            writing = ((PutRequest) request).key;
+        }
+        else
+        {
+            writing = null;
+        }
+       
         return !conflict(writing);
     }
 
@@ -124,7 +113,7 @@ class ReadSet
 /**
  * Visitor to update the store.
  */
-class ProcessRequest implements RequestVisitor<String, NoThrow>
+class ProcessRequest implements RequestVisitor<Response, NoThrow>
 {
     private ServerState state;
 
@@ -134,27 +123,46 @@ class ProcessRequest implements RequestVisitor<String, NoThrow>
     }
 
     @Override
-    public String visit(DeleteRequest r)
+    public Response visit(DeleteRequest r)
     {
-        return state.store.delete(r.key);
+        return new ProcessResponse(state.store.delete(r.key));
     }
 
     @Override
-    public String visit(PutRequest r)
+    public Response visit(PutRequest r)
     {
-        return state.store.put(r.key, r.val);
+        return new ProcessResponse(state.store.put(r.key, r.val));
     }
 
     @Override
-    public String visit(GetRequest r) throws NoThrow
+    public Response visit(GetRequest r) throws NoThrow
     {
-        return state.store.get(r.key);
+        return new ProcessResponse(state.store.get(r.key));
     }
 
     @Override
-    public String visit(PrintRequest r) throws NoThrow
+    public Response visit(PrintRequest r) throws NoThrow
     {
         Logger.log(state.toString());
+        return new ProcessResponse();
+    }
+
+    // TODO error those out
+    @Override
+    public Response visit(OpenRequest r) throws NoThrow
+    {
+        return null;
+    }
+
+    @Override
+    public Response visit(CommitRequest r) throws NoThrow
+    {
+        return null;
+    }
+
+    @Override
+    public Response visit(AbortRequest r) throws NoThrow
+    {
         return null;
     }
 }
@@ -710,17 +718,8 @@ class Coordinator implements CoordinatorService
         return !highest.isPresent() || highest.get().getProposal().getValue().equals(value);
     }
     
-    /**
-     * Broadcast a request to all available replicated servers. The two-phase commit
-     * protocol is adopted to commit or abort a request.
-     * 
-     * @param request the request to be processed
-     * @return a nullable value after processing the request.
-     * @throws RemoteException if request got aborted or any communication-related
-     *                         issues have occurred.
-     */
     @Override
-    public synchronized String broadcast(Request request) throws RemoteException
+    public synchronized Response process(Request request) throws RemoteException
     {
         waitForServices();
 
@@ -803,7 +802,7 @@ class Coordinator implements CoordinatorService
                                     });
             exclude(unresponsive);
 
-            final String response = request.accept(new ProcessRequest(state));
+            final Response response = request.accept(new ProcessRequest(state));
             Logger.log("Request " + request + " has been committed.");
             
             // run PAXOS concurrently
@@ -897,45 +896,62 @@ class Store implements StoreService
      * Process a request.
      * 
      * @param request the request to be processed
-     * @note multiple GET requests will be processed concurrently.
-     * @note PUT/DELETE/PRINT request will be forwarded to the coordinator to
-     *       broadcast to other replicated servers.
-     * @return a nullable value depending on the request type.
-     * @throws RemoteException if a conflict occurred between the write set of the
-     *                         broadcast request and the read set of the concurrent
-     *                         reads or any other communication-related issues
-     *                         occurred.
+     * @param tid the transaction Id
+     * @return a response depending on the request type.
+     * @throws RemoteException 
+     * @throws TransactionAbortException if the request in the current transaction is aborted.
      */
     @Override
-    public String process(Request request) throws RemoteException
+    public Response process(Request request, TransactionId tid) throws TransactionAbortException, RemoteException
     {
-        return request.accept(new RequestVisitor<String, RemoteException>()
+        return request.accept(new RequestVisitor<Response, RemoteException>()
                               {
                                     @Override
-                                    public String visit(GetRequest r)
+                                    public Response visit(GetRequest r)
                                     {
                                         readset.mark(r.key);
-                                        final String val = r.accept(new ProcessRequest(state));
+                                        final Response response = r.accept(new ProcessRequest(state));
                                         readset.unmark(r.key);
-                                        return val;
+                                        return response;
                                     }
                         
                                     @Override
-                                    public String visit(DeleteRequest r) throws RemoteException
+                                    public Response visit(DeleteRequest r) throws RemoteException
                                     {
-                                        return coordinator.broadcast(r);
+                                        return coordinator.process(r);
                                     }
                         
                                     @Override
-                                    public String visit(PutRequest r) throws RemoteException
+                                    public Response visit(PutRequest r) throws RemoteException
                                     {
-                                        return coordinator.broadcast(r);
+                                        return coordinator.process(r);
                                     }
                         
                                     @Override
-                                    public String visit(PrintRequest r) throws RemoteException
+                                    public Response visit(PrintRequest r) throws RemoteException
                                     {
-                                        return coordinator.broadcast(r);
+                                        return coordinator.process(r);
+                                    }
+
+                                    @Override
+                                    public Response visit(OpenRequest r) throws RemoteException
+                                    {
+                                        // TODO handle open
+                                        return null;
+                                    }
+
+                                    @Override
+                                    public Response visit(CommitRequest r) throws RemoteException
+                                    {
+                                        // TODO handle commit
+                                        return null;
+                                    }
+
+                                    @Override
+                                    public Response visit(AbortRequest r) throws RemoteException
+                                    {
+                                        // TODO handle abort
+                                        return null;
                                     }
                               });
     }
