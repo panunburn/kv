@@ -20,7 +20,7 @@
 * `java -cp kv.jar client.Client <endpoint>?` starts the client given an optional endpoint to any server.  
 
 ## Quick Run
-1. `java -cp kv.jar transaction.Server` starts the global unique id service with the default port `1099`.
+1. `java -cp kv.jar transaction.Server` starts the global transaction service with the default port `1099`.
 2. `java -cp kv.jar server.Server coordinator 1099 1110` starts the coordinator on the current host given the unique id service endpoint `1099` and the port number, `1110`, it will use.
 3. `java -cp kv.jar server.Server replica localhost:1110 1111` starts the replicated server on the current host with port `1111` given the coordinator's endpoint location, `localhost:1110`.
 4. `java -cp kv.jar server.Server replica localhost:1110 1112` starts another replicated server on the current host with port `1112` given the coordinator's endpoint location, `localhost:1110`.
@@ -28,7 +28,6 @@
 6. `java -cp kv.jar client.Client localhost:1111` or `java client.Client 1112` starts the client connecting to the replicated server we have just started.
 
 ## Query Syntax
-
 ```
 <Top> := OPEN <Query>+ ... COMMIT/ABORT
 	   | <Query>+ ; ... ; <Query>
