@@ -1,12 +1,12 @@
 ALL: build
 
-.PHONY: build clean client id server
+.PHONY: build clean client transaction server
 
 JAR = kv.jar
 BIN = bin
 
 SHARED = common protocol
-EXEC = client id server
+EXEC = client transaction server
 SHARED_FILES = $(addsuffix /*.java,$(SHARED))
 
 $(BIN):
@@ -18,7 +18,7 @@ client: $(BIN) $(SHARED_FILES) client/*.java
 server: $(BIN) $(SHARED_FILES) server/*.java
 	javac -d $^
 
-id: $(BIN) $(SHARED_FILES) id/*.java
+transaction: $(BIN) $(SHARED_FILES) transaction/*.java
 	javac -d $^
 
 build: $(BIN) $(EXEC)
