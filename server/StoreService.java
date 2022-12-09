@@ -16,8 +16,7 @@ public interface StoreService extends Remote
      * @param request the request to be processed
      * @param tid the transaction Id
      * @return a response depending on the request type.
-     * @throws TransactionAbortException if the request in the current transaction is aborted.
      * @throws RemoteException
      */
-    Response process(Request request, TransactionId tid) throws TransactionAbortException, RemoteException;
+    Response process(Request request, TransactionId tid) throws RemoteException;
 }

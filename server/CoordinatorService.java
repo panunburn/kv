@@ -3,6 +3,7 @@ package server;
 import java.rmi.*;
 import common.EndPoint;
 import protocol.*;
+import transaction.TransactionId;
 
 /**
  * The service interfaces between the server and the coordinator.
@@ -46,9 +47,9 @@ public interface CoordinatorService extends PaxosService<Request>
      * Process the request and update the replicas when the request commits.
      * 
      * @param request the request to be processed.
+     * @param tid the transaction Id
      * @return a response depending on the request type.
-     * @throws TransactionAbortException if the request in the current transaction is aborted.
      * @throws RemoteException 
      */
-    Response process(Request request) throws RemoteException;
+    Response process(Request request, TransactionId tid) throws RemoteException;
 }

@@ -39,6 +39,8 @@ class Client
             StoreService store = ServiceRegistry.connect(server, StoreService.class);
             Logger.log("Connected to the server.");
 
+            // TODO client should issue COMMIT when it exits if the tid is currently open
+            
             TransactionId tid = null;
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
             while (true)
@@ -57,6 +59,10 @@ class Client
                     }
                     else
                     {
+                        // TODO check for nested OPENs
+                        
+                        // TODO add QueryParser for syntax validation
+                        
                         Request request = RequestParser.parse(input);
                         Response response = store.process(request, tid);
                         tid = response.accept(new ResponseVisitor<TransactionId, NoThrow>()
@@ -72,6 +78,10 @@ class Client
                                                         else if (request instanceof CommitRequest)
                                                         {
                                                             Logger.log("Transaction " + r.tid + " committed.");
+                                                        }
+                                                        else if (request instanceof AbortRequest)
+                                                        {
+                                                            Logger.log("Transaction " + r.tid + " aborted.");
                                                         }
                                                         else
                                                         {
@@ -145,14 +155,9 @@ class Client
                 {
                     Logger.warning(e);
                 }
-                catch (TransactionAbortException e)
-                {
-                    tid = null;
-                    Logger.warning("Request aborted.", e);
-                }
                 catch (RemoteException e)
                 {
-                    // TODO Automatically retry other available severs.
+                    // TODO Automatically retry other available severs if none then switch to manual
                     Logger.warning("Service exception.", e);
                     
                     while (true)

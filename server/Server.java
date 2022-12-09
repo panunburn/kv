@@ -719,7 +719,7 @@ class Coordinator implements CoordinatorService
     }
     
     @Override
-    public synchronized Response process(Request request) throws RemoteException
+    public synchronized Response process(Request request, TransactionId tid) throws RemoteException
     {
         waitForServices();
 
@@ -853,7 +853,7 @@ class Coordinator implements CoordinatorService
                           });
             exclude(unresponsive);
             Logger.log("Request " + request + " has been aborted.");
-            throw new TransactionAbortException();
+            return new TransactionResponse(tid);
         }
     }
 
@@ -881,9 +881,9 @@ class Coordinator implements CoordinatorService
  */
 class Store implements StoreService
 {
-    private CoordinatorService coordinator;
-    private ServerState state;
-    private ReadSet readset;
+    private final CoordinatorService coordinator;
+    private final ServerState state;
+    private final ReadSet readset;
 
     public Store(CoordinatorService coordinator, ServerState state, ReadSet readset)
     {
@@ -899,10 +899,9 @@ class Store implements StoreService
      * @param tid the transaction Id
      * @return a response depending on the request type.
      * @throws RemoteException 
-     * @throws TransactionAbortException if the request in the current transaction is aborted.
      */
     @Override
-    public Response process(Request request, TransactionId tid) throws TransactionAbortException, RemoteException
+    public Response process(Request request, TransactionId tid) throws RemoteException
     {
         return request.accept(new RequestVisitor<Response, RemoteException>()
                               {
@@ -918,19 +917,19 @@ class Store implements StoreService
                                     @Override
                                     public Response visit(DeleteRequest r) throws RemoteException
                                     {
-                                        return coordinator.process(r);
+                                        return coordinator.process(r, tid);
                                     }
                         
                                     @Override
                                     public Response visit(PutRequest r) throws RemoteException
                                     {
-                                        return coordinator.process(r);
+                                        return coordinator.process(r, tid);
                                     }
                         
                                     @Override
                                     public Response visit(PrintRequest r) throws RemoteException
                                     {
-                                        return coordinator.process(r);
+                                        return coordinator.process(r, tid);
                                     }
 
                                     @Override
